@@ -107,7 +107,7 @@ This ensures ivlist/celllist entries ALWAYS take priority over auto_rarity entri
 
 ### Golbat Configuration
 
-You need TWO webhook configurations in Golbat:
+You need ONE webhook configurations in Golbat:
 
 ```toml
 # Existing webhook for ivlist/celllist filtering
