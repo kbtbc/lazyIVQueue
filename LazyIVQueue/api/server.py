@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import Optional, Set, List
 from aiohttp import web
-
 from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.webhook.filter import process_pokemon_webhook, process_census_webhook
 from LazyIVQueue.rarity.manager import RarityManager
@@ -15,14 +14,14 @@ from LazyIVQueue.config import reload_config
 class LazyIVQueueServer:
     """
     Main API server for LazyIVQueue.
-
+    
     Provides endpoints for:
     - POST /webhook - Receive Pokemon webhooks from Golbat (secured)
     - GET /health - Health check
     - GET /stats - Queue statistics
     - GET /queue - Queue preview (next N entries)
     - GET /config - Current configuration summary
-
+    
     Security:
     - ALLOWED_IPS: Restrict webhook access to specific IPs
     - HEADERS: Require specific header for webhook access (format: "HeaderName: Value")
@@ -37,6 +36,7 @@ class LazyIVQueueServer:
         self.port = port or AppConfig.lazyivqueue_port
         self.allowed_ips = self._parse_allowed_ips(AppConfig.allowed_ips)
         self.auth_header = AppConfig.headers
+        
         self._app: Optional[web.Application] = None
         self._runner: Optional[web.AppRunner] = None
         self._site: Optional[web.TCPSite] = None
@@ -45,51 +45,49 @@ class LazyIVQueueServer:
         """Parse and validate allowed IPs list."""
         if not ips:
             return set()
-
+            
         result = set()
         for ip in ips:
             ip = ip.strip()
             if ip:
                 result.add(ip)
-
         return result
 
     def _validate_ip(self, request: web.Request) -> bool:
         """Validate client IP against whitelist."""
         if not self.allowed_ips:
             return True  # No whitelist = allow all
-
+            
         # Get client IP
         client_ip = request.remote
-
+        
         # Handle X-Forwarded-For if behind proxy
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
             # Take the first IP (original client)
             client_ip = forwarded.split(",")[0].strip()
-
+            
         return client_ip in self.allowed_ips
 
     def _validate_auth(self, request: web.Request) -> bool:
         """Validate Authorization header."""
         if not self.auth_header:
             return True
-
+            
         # Parse expected header (format: "HeaderName: Value")
         if ":" in self.auth_header:
             header_name, expected_value = self.auth_header.split(":", 1)
             header_name = header_name.strip()
             expected_value = expected_value.strip()
-
+            
             actual_value = request.headers.get(header_name)
             return actual_value == expected_value
-
+            
         return True
 
     async def handle_webhook(self, request: web.Request) -> web.Response:
         """
         Handle incoming webhook POST requests.
-
         Expected payload format from Golbat:
         {
             "type": "pokemon",
@@ -103,7 +101,7 @@ class LazyIVQueueServer:
             client_ip = request.remote
             logger.warning(f"Rejected webhook from unauthorized IP: {client_ip}")
             return web.Response(status=403, text="Forbidden")
-
+            
         # Validate auth
         if not self._validate_auth(request):
             logger.warning(f"Rejected webhook with invalid auth from: {request.remote}")
@@ -113,6 +111,13 @@ class LazyIVQueueServer:
             payload = await request.json()
             await self._process_payload(payload)
             return web.Response(status=200, text="OK")
+        except web.HTTPRequestEntityTooLarge:
+            logger.error(
+                f"Webhook payload exceeded max body size "
+                f"({AppConfig.lazyivqueue_max_body_size} bytes) — "
+                f"consider raising LAZYIVQUEUE_MAX_BODY_SIZE"
+            )
+            return web.Response(status=413, text="Payload Too Large")
         except Exception as e:
             logger.error(f"Error processing webhook: {e}")
             return web.Response(status=500, text="Internal Error")
@@ -120,10 +125,10 @@ class LazyIVQueueServer:
     async def _process_payload(self, payload) -> None:
         """Process webhook payload - handle single message or array."""
         messages = payload if isinstance(payload, list) else [payload]
-
+        
         for msg in messages:
             msg_type = msg.get("type")
-
+            
             # We only care about pokemon messages
             if msg_type == "pokemon":
                 pokemon_data = msg.get("message", {})
@@ -131,8 +136,9 @@ class LazyIVQueueServer:
                     # Process for the rarity tracker directly if auto_rarity is enabled
                     if AppConfig.auto_rarity_enabled:
                         await process_census_webhook(pokemon_data)
-                        # Process for the IV Queue
-                        await process_pokemon_webhook(pokemon_data)
+                        
+                    # Process for the IV Queue
+                    await process_pokemon_webhook(pokemon_data)
 
     async def handle_health(self, request: web.Request) -> web.Response:
         """Health check endpoint."""
@@ -145,27 +151,32 @@ class LazyIVQueueServer:
             stats = {
                 "queue": await queue.get_stats(),
             }
-
+            
             # Add rarity stats if auto_rarity is enabled
             if AppConfig.auto_rarity_enabled:
                 rarity_manager = await RarityManager.get_instance()
                 stats["rarity"] = await rarity_manager.get_stats()
-
+                
             return web.json_response(stats)
         except Exception as e:
             logger.error(f"Error getting stats: {e}")
             return web.json_response({"error": str(e)}, status=500)
-
+        except web.HTTPRequestEntityTooLarge:
+            logger.error(
+                f"Census payload exceeded max body size "
+                f"({AppConfig.lazyivqueue_max_body_size} bytes) — "
+                f"consider raising LAZYIVQUEUE_MAX_BODY_SIZE"
+            )
+            return web.Response(status=413, text="Payload Too Large")            
     async def handle_queue_preview(self, request: web.Request) -> web.Response:
         """Queue preview endpoint - shows next N entries."""
-
         try:
             count = int(request.query.get("count", 10))
             count = min(count, 100)  # Cap at 100
-
+            
             queue = await IVQueueManager.get_instance()
             preview = queue.get_next_entries_preview(count)
-
+            
             return web.json_response({
                 "count": len(preview),
                 "entries": preview
@@ -178,7 +189,7 @@ class LazyIVQueueServer:
         """
         Auto Rarity rankings endpoint.
         Shows Pokemon ranked by rarity for each area.
-
+        
         Query params:
             area: Filter to specific area (optional)
             limit: Max Pokemon per area (default 100, max 500)
@@ -188,19 +199,19 @@ class LazyIVQueueServer:
                 {"error": "Auto Rarity is not enabled. Set AUTO_RARITY=TRUE in .env"},
                 status=400
             )
-
+            
         try:
             area = request.query.get("area")
             limit = min(int(request.query.get("limit", 100)), 500)
-
+            
             rarity_manager = await RarityManager.get_instance()
             rankings = await rarity_manager.get_rankings(area=area, limit=limit)
-
+            
             return web.json_response(rankings)
         except Exception as e:
             logger.error(f"Error getting rarity rankings: {e}")
             return web.json_response({"error": str(e)}, status=500)
-
+            
     async def handle_config(self, request: web.Request) -> web.Response:
         """Current configuration summary."""
         try:
@@ -236,13 +247,13 @@ class LazyIVQueueServer:
     async def handle_reload(self, request: web.Request) -> web.Response:
         """
         Hot-reload config.json values without restarting.
-
+        
         Reloadable:
         - ivlist, celllist
         - auto_rarity settings (thresholds, intervals)
         - scout concurrency and timeout
         - geofence cache settings
-
+        
         NOT reloadable (require restart):
         - Server host/port, Dragonite API, Koji credentials
         - LOG_LEVEL, AUTO_RARITY enable/disable, FILTER_WITH_KOJI
@@ -250,7 +261,7 @@ class LazyIVQueueServer:
         try:
             # Reload config values
             changes = reload_config()
-
+            
             # If concurrency changed, update the queue semaphore
             if "concurrency_scout" in changes:
                 queue = await IVQueueManager.get_instance()
@@ -259,7 +270,7 @@ class LazyIVQueueServer:
                     f"Scout concurrency updated: {changes['concurrency_scout']['old']} -> "
                     f"{changes['concurrency_scout']['new']}"
                 )
-
+                
             return web.json_response({
                 "status": "success",
                 "changes_count": len(changes),
@@ -270,9 +281,69 @@ class LazyIVQueueServer:
             logger.error(f"Error reloading config: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
+    async def handle_dashboard(self, request: web.Request) -> web.Response:
+        """Serve a simple HTML dashboard."""
+        html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LazyIVQueue Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        async function fetchStats() {
+            try {
+                const response = await fetch('/stats');
+                const data = await response.json();
+                document.getElementById('stats-content').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('stats-content').textContent = 'Error loading stats: ' + error;
+            }
+        }
+
+        async function triggerReload() {
+            try {
+                const response = await fetch('/reload', { method: 'POST' });
+                const data = await response.json();
+                alert('Reload response:\\n' + JSON.stringify(data, null, 2));
+                fetchStats();
+            } catch (error) {
+                alert('Error triggering reload: ' + error);
+            }
+        }
+
+        // Fetch stats on load and every 5 seconds
+        window.onload = () => {
+            fetchStats();
+            setInterval(fetchStats, 5000);
+        };
+    </script>
+</head>
+<body class="bg-gray-100 p-8 text-gray-800 font-sans">
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-900">LazyIVQueue Dashboard</h1>
+            <button onclick="triggerReload()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow transition">
+                Reload Config
+            </button>
+        </div>
+        
+        <div class="grid grid-cols-1 gap-6">
+            <div>
+                <h2 class="text-xl font-semibold mb-2">Live Stats</h2>
+                <pre id="stats-content" class="bg-gray-900 text-green-400 p-4 rounded overflow-auto h-96 text-sm shadow-inner"></pre>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+        """
+        return web.Response(text=html, content_type='text/html')
+
     async def start(self) -> None:
         """Start the API server."""
-        self._app = web.Application(client_max_size=1024**2 * 50)
+        self._app = web.Application(client_max_size=AppConfig.lazyivqueue_max_body_size)        
+        self._app.router.add_get("/", self.handle_dashboard)
         self._app.router.add_post("/webhook", self.handle_webhook)
         self._app.router.add_get("/health", self.handle_health)
         self._app.router.add_get("/stats", self.handle_stats)
@@ -288,6 +359,7 @@ class LazyIVQueueServer:
         await self._site.start()
 
         logger.info(f"LazyIVQueue server started on http://{self.host}:{self.port}")
+        logger.debug(f"  GET  /               - Dashboard")
         logger.debug(f"  POST /webhook        - Receive Golbat webhooks (secured)")
         logger.debug(f"  GET  /health         - Health check")
         logger.debug(f"  GET  /stats          - Queue and rarity statistics")
@@ -295,7 +367,7 @@ class LazyIVQueueServer:
         logger.debug(f"  GET  /rarity         - Auto Rarity rankings (?area=X&limit=N)")
         logger.debug(f"  GET  /config         - Configuration summary")
         logger.debug(f"  POST /reload         - Hot-reload config.json")
-
+        
         if self.allowed_ips:
             logger.info(f"Webhook IP whitelist: {len(self.allowed_ips)} IPs allowed")
         if self.auth_header:
@@ -305,8 +377,6 @@ class LazyIVQueueServer:
         """Graceful shutdown."""
         if self._site:
             await self._site.stop()
-
         if self._runner:
             await self._runner.cleanup()
-
         logger.info("LazyIVQueue server stopped")
