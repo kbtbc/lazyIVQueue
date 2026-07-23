@@ -73,6 +73,8 @@ koji_geofence_api_url = f"http://{koji_ip}:{koji_port}/api/v1/geofence/feature-c
 koji_url_base = get_env_var("KOJI_URL")
 koji_url = f"{koji_url_base}/api/v1/geofence/feature-collection/{koji_project_name}" if koji_url_base else None
 
+geofence_file_path = get_env_var("GEOFENCE_FILE_PATH", None)
+
 # Filter with Koji geofences (if False, only ivlist filtering is applied)
 filter_with_koji: bool = get_env_var("FILTER_WITH_KOJI", "TRUE").upper() == "TRUE"
 
