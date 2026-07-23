@@ -283,62 +283,15 @@ class LazyIVQueueServer:
 
     async def handle_dashboard(self, request: web.Request) -> web.Response:
         """Serve a simple HTML dashboard."""
-        html = """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LazyIVQueue Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        async function fetchStats() {
-            try {
-                const response = await fetch('/stats');
-                const data = await response.json();
-                document.getElementById('stats-content').textContent = JSON.stringify(data, null, 2);
-            } catch (error) {
-                document.getElementById('stats-content').textContent = 'Error loading stats: ' + error;
-            }
-        }
-
-        async function triggerReload() {
-            try {
-                const response = await fetch('/reload', { method: 'POST' });
-                const data = await response.json();
-                alert('Reload response:\\n' + JSON.stringify(data, null, 2));
-                fetchStats();
-            } catch (error) {
-                alert('Error triggering reload: ' + error);
-            }
-        }
-
-        // Fetch stats on load and every 5 seconds
-        window.onload = () => {
-            fetchStats();
-            setInterval(fetchStats, 5000);
-        };
-    </script>
-</head>
-<body class="bg-gray-100 p-8 text-gray-800 font-sans">
-    <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
-        <div class="flex justify-between items-center mb-6">
-            <h1 class="text-3xl font-bold text-gray-900">LazyIVQueue Dashboard</h1>
-            <button onclick="triggerReload()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow transition">
-                Reload Config
-            </button>
-        </div>
-        
-        <div class="grid grid-cols-1 gap-6">
-            <div>
-                <h2 class="text-xl font-semibold mb-2">Live Stats</h2>
-                <pre id="stats-content" class="bg-gray-900 text-green-400 p-4 rounded overflow-auto h-96 text-sm shadow-inner"></pre>
-            </div>
-        </div>
-    </div>
-</body>
-</html>
-        """
-        return web.Response(text=html, content_type='text/html')
+        import os
+        try:
+            template_path = os.path.join(os.path.dirname(__file__), 'templates', 'dashboard.html')
+            with open(template_path, 'r', encoding='utf-8') as f:
+                html = f.read()
+            return web.Response(text=html, content_type='text/html')
+        except Exception as e:
+            logger.error(f"Error loading dashboard template: {e}")
+            return web.Response(text=f"Error loading dashboard: {e}", status=500, content_type='text/plain')
 
     async def start(self) -> None:
         """Start the API server."""

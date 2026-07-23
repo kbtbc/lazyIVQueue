@@ -55,7 +55,7 @@ class RarityManager:
         # Stats
         self._total_spawns_tracked: int = 0
         self._last_ranking_time: Optional[float] = None
-        self._last_log_count: int = 0  # For periodic logging
+        self._last_log_time: float = 0.0  # For periodic logging
 
     @classmethod
     async def get_instance(cls) -> RarityManager:
@@ -118,13 +118,14 @@ class RarityManager:
             if pokemon_key not in self._actives[area]:
                 self._actives[area][pokemon_key] = []
 
-            # Add spawn
+           # Add spawn
             self._actives[area][pokemon_key].append(despawn_time)
             self._total_spawns_tracked += 1
 
-            # Log every 100 spawns
-            if self._total_spawns_tracked - self._last_log_count >= 100:
-                self._last_log_count = self._total_spawns_tracked
+            # Log periodically (every 60 seconds)
+            current_time = time.time()
+            if current_time - self._last_log_time >= 60.0:
+                self._last_log_time = current_time
                 should_log = True
 
         # Log outside the lock

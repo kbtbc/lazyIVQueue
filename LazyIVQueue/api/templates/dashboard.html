@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LazyIVQueue Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .card { @apply bg-white p-6 rounded-xl shadow-sm border border-gray-100; }
+        .metric-value { @apply text-3xl font-bold text-gray-900 mt-2; }
+        .metric-label { @apply text-sm font-medium text-gray-500 uppercase tracking-wider; }
+        .badge { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans text-gray-900 pb-12">
+    <nav class="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center">
+                    <h1 class="text-xl font-bold text-gray-900 flex items-center gap-2">
+                        <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        LazyIVQueue
+                    </h1>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span id="connection-status" class="badge bg-green-100 text-green-800">Connected</span>
+                    <button onclick="triggerReload()" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
+                        <svg class="mr-2 -ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Reload Config
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Top Metrics -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="card">
+                <h3 class="metric-label">Queue Size</h3>
+                <div class="flex items-baseline gap-2">
+                    <p class="metric-value" id="queue-size">--</p>
+                    <p class="text-sm text-gray-500">total entries</p>
+                </div>
+                <div class="mt-4 flex gap-4 text-sm">
+                    <div class="flex flex-col"><span class="text-gray-500">Pending</span><span class="font-semibold text-yellow-600" id="queue-pending">--</span></div>
+                    <div class="flex flex-col"><span class="text-gray-500">Awaiting IV</span><span class="font-semibold text-blue-600" id="queue-awaiting">--</span></div>
+                    <div class="flex flex-col"><span class="text-gray-500">Held</span><span class="font-semibold text-purple-600" id="queue-held">--</span></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 class="metric-label">Scouts Active</h3>
+                <div class="flex items-baseline gap-2">
+                    <p class="metric-value" id="scouts-active">--</p>
+                    <p class="text-sm text-gray-500">/ <span id="scouts-max">--</span> max</p>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2 mt-4">
+                    <div class="bg-blue-600 h-2 rounded-full" id="scouts-progress" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 class="metric-label">IVs Per Hour</h3>
+                <p class="metric-value text-green-600" id="iv-per-hour">--</p>
+                <div class="mt-4 flex justify-between text-sm">
+                    <span class="text-gray-500">Normal: <span class="font-medium text-gray-900" id="iv-normal">--</span></span>
+                    <span class="text-gray-500">Cell: <span class="font-medium text-gray-900" id="iv-cell">--</span></span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 class="metric-label">Auto Rarity Status</h3>
+                <p class="metric-value" id="rarity-status">--</p>
+                <div class="mt-4 flex justify-between text-sm">
+                    <span class="text-gray-500">Active Spawns: <span class="font-medium text-gray-900" id="active-spawns">--</span></span>
+                    <span class="text-gray-500">Areas: <span class="font-medium text-gray-900" id="tracked-areas">--</span></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div class="card">
+                <h3 class="text-lg font-bold text-gray-900 mb-4">Session Statistics</h3>
+                <div class="relative h-64">
+                    <canvas id="sessionChart"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <h3 class="text-lg font-bold text-gray-900 mb-4">Source Breakdown</h3>
+                <div class="relative h-64 flex justify-center">
+                    <canvas id="sourceChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Raw JSON Viewer -->
+        <div class="card">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-gray-900">Raw Telemetry</h3>
+                <button onclick="toggleRawData()" class="text-sm text-blue-600 hover:text-blue-800">Toggle View</button>
+            </div>
+            <pre id="stats-content" class="hidden bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto h-96 text-xs shadow-inner font-mono"></pre>
+        </div>
+    </main>
+
+    <script>
+        let sessionChart = null;
+        let sourceChart = null;
+
+        function initCharts() {
+            const ctxSession = document.getElementById('sessionChart').getContext('2d');
+            sessionChart = new Chart(ctxSession, {
+                type: 'bar',
+                data: {
+                    labels: ['Queued', 'Matches', 'Early IV', 'Timeouts'],
+                    datasets: [{
+                        label: 'Wild',
+                        backgroundColor: '#3b82f6',
+                        data: [0, 0, 0, 0]
+                    }, {
+                        label: 'Nearby Stop',
+                        backgroundColor: '#8b5cf6',
+                        data: [0, 0, 0, 0]
+                    }, {
+                        label: 'Nearby Cell',
+                        backgroundColor: '#10b981',
+                        data: [0, 0, 0, 0]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { stacked: true },
+                        y: { stacked: true, beginAtZero: true }
+                    }
+                }
+            });
+
+            const ctxSource = document.getElementById('sourceChart').getContext('2d');
+            sourceChart = new Chart(ctxSource, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Wild', 'Nearby Stop', 'Nearby Cell'],
+                    datasets: [{
+                        data: [0, 0, 0],
+                        backgroundColor: ['#3b82f6', '#8b5cf6', '#10b981'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '70%',
+                    plugins: {
+                        legend: { position: 'right' }
+                    }
+                }
+            });
+        }
+
+        function updateCharts(stats) {
+            if (!stats.queue || !stats.queue.session) return;
+            
+            const session = stats.queue.session;
+            
+            // Update Bar Chart
+            const wildData = [
+                session.total_queued.wild || 0,
+                session.total_matches.wild || 0,
+                session.total_early_iv.wild || 0,
+                session.total_timeouts.wild || 0
+            ];
+            const stopData = [
+                session.total_queued.nearby_stop || 0,
+                session.total_matches.nearby_stop || 0,
+                session.total_early_iv.nearby_stop || 0,
+                session.total_timeouts.nearby_stop || 0
+            ];
+            const cellData = [
+                session.total_queued.nearby_cell || 0,
+                session.total_matches.nearby_cell || 0,
+                session.total_early_iv.nearby_cell || 0,
+                session.total_timeouts.nearby_cell || 0
+            ];
+
+            sessionChart.data.datasets[0].data = wildData;
+            sessionChart.data.datasets[1].data = stopData;
+            sessionChart.data.datasets[2].data = cellData;
+            sessionChart.update();
+
+            // Update Doughnut Chart (total queued by source)
+            sourceChart.data.datasets[0].data = [
+                session.total_queued.wild || 0,
+                session.total_queued.nearby_stop || 0,
+                session.total_queued.nearby_cell || 0
+            ];
+            sourceChart.update();
+        }
+
+        async function fetchStats() {
+            try {
+                const response = await fetch('/stats');
+                if (!response.ok) throw new Error('Network response was not ok');
+                const data = await response.json();
+                
+                document.getElementById('connection-status').textContent = 'Connected';
+                document.getElementById('connection-status').className = 'badge bg-green-100 text-green-800';
+                
+                // Raw JSON
+                document.getElementById('stats-content').textContent = JSON.stringify(data, null, 2);
+
+                // Queue Metrics
+                if (data.queue) {
+                    document.getElementById('queue-size').textContent = data.queue.queue_size || 0;
+                    document.getElementById('queue-pending').textContent = data.queue.pending || 0;
+                    document.getElementById('queue-awaiting').textContent = data.queue.awaiting_iv || 0;
+                    document.getElementById('queue-held').textContent = data.queue.held || 0;
+                    
+                    document.getElementById('scouts-active').textContent = data.queue.active_scouts || 0;
+                    document.getElementById('scouts-max').textContent = data.queue.max_concurrency || 0;
+                    
+                    if (data.queue.max_concurrency > 0) {
+                        const pct = Math.min(100, Math.round(((data.queue.active_scouts || 0) / data.queue.max_concurrency) * 100));
+                        document.getElementById('scouts-progress').style.width = pct + '%';
+                    }
+
+                    if (data.queue.iv_per_hour) {
+                        document.getElementById('iv-per-hour').textContent = data.queue.iv_per_hour.combined || 0;
+                        document.getElementById('iv-normal').textContent = data.queue.iv_per_hour.normal || 0;
+                        document.getElementById('iv-cell').textContent = data.queue.iv_per_hour.nearby_cell || 0;
+                    }
+                }
+
+                // Rarity Metrics
+                if (data.rarity) {
+                    const statusElem = document.getElementById('rarity-status');
+                    if (data.rarity.is_calibrated) {
+                        statusElem.textContent = 'Calibrated';
+                        statusElem.className = 'metric-value text-blue-600';
+                    } else {
+                        const mins = Math.ceil((data.rarity.calibration_remaining || 0) / 60);
+                        statusElem.textContent = 'Calibrating (' + mins + 'm)';
+                        statusElem.className = 'metric-value text-yellow-500';
+                    }
+                    
+                    document.getElementById('active-spawns').textContent = data.rarity.total_active_spawns || 0;
+                    document.getElementById('tracked-areas').textContent = data.rarity.areas_tracked || 0;
+                } else {
+                    document.getElementById('rarity-status').textContent = 'Disabled';
+                    document.getElementById('rarity-status').className = 'metric-value text-gray-400';
+                }
+
+                // Charts
+                updateCharts(data);
+
+            } catch (error) {
+                document.getElementById('connection-status').textContent = 'Disconnected';
+                document.getElementById('connection-status').className = 'badge bg-red-100 text-red-800';
+                console.error('Error fetching stats:', error);
+            }
+        }
+
+        async function triggerReload() {
+            try {
+                const response = await fetch('/reload', { method: 'POST' });
+                const data = await response.json();
+                alert('Reload successful!\nChanges: ' + data.changes_count);
+                fetchStats();
+            } catch (error) {
+                alert('Error triggering reload: ' + error);
+            }
+        }
+
+        function toggleRawData() {
+            const el = document.getElementById('stats-content');
+            el.classList.toggle('hidden');
+        }
+
+        window.onload = () => {
+            initCharts();
+            fetchStats();
+            setInterval(fetchStats, 5000);
+        };
+    </script>
+</body>
+</html>
