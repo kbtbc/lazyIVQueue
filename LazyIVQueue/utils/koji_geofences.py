@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
 from cachetools import TTLCache
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon, MultiPolygon
 from shapely.prepared import prep
 
 from LazyIVQueue.utils.logger import logger
@@ -19,7 +20,7 @@ class GeofenceArea:
     """Represents a single geofence area."""
 
     name: str
-    polygon: Polygon
+    polygon: Union[Polygon, MultiPolygon]
     prepared_polygon: Any  # PreparedGeometry for faster point-in-polygon checks
 
 
@@ -97,15 +98,21 @@ class KojiGeofenceManager:
 
     async def _fetch_geofences(self) -> Dict[str, GeofenceArea]:
         """
-        Fetch geofences from Koji API.
-
-        Endpoint: GET {koji_url}/api/v1/geofence/feature-collection/{project_name}
-        Headers: Authorization: Bearer {koji_bearer_token}
-        Response: GeoJSON FeatureCollection
+        Fetch geofences from local file (if configured) or Koji API.
         """
+        # 1. Check if local file is configured
+        if AppConfig.geofence_file_path:
+            try:
+                with open(AppConfig.geofence_file_path, "r") as f:
+                    data = json.load(f)
+                return self._parse_poracle_json(data)
+            except Exception as e:
+                logger.error(f"Failed to load geofences from file {AppConfig.geofence_file_path}: {e}")
+                return {}
+
+        # 2. Otherwise, fetch from Koji API
         # Determine which URL to use
         url = AppConfig.koji_url or AppConfig.koji_geofence_api_url
-
         if not url:
             logger.error("No Koji URL configured (KOJI_URL or KOJI_IP/KOJI_PORT)")
             return {}
@@ -125,13 +132,57 @@ class KojiGeofenceManager:
 
                 data = await response.json()
                 return self._parse_geojson(data)
-
         except aiohttp.ClientError as e:
             logger.error(f"Network error fetching geofences from Koji: {e}")
             return {}
         except Exception as e:
             logger.error(f"Unexpected error fetching geofences: {e}")
             return {}
+
+    def _parse_poracle_json(self, data: List[Dict]) -> Dict[str, GeofenceArea]:
+        """
+        Parse Poracle format geofence JSON.
+        """
+        geofences = {}
+        for item in data:
+            try:
+                name = item.get("name", "unknown")
+                polygons = []
+                
+                # Check for 'path'
+                if item.get("path"):
+                    coords = [(lon, lat) for lat, lon in item["path"]]
+                    if len(coords) >= 3:
+                        polygons.append(Polygon(coords))
+                        
+                # Check for 'multipath'
+                elif item.get("multipath"):
+                    for path in item["multipath"]:
+                        coords = [(lon, lat) for lat, lon in path]
+                        if len(coords) >= 3:
+                            polygons.append(Polygon(coords))
+                            
+                if not polygons:
+                    continue
+                    
+                if len(polygons) == 1:
+                    geom = polygons[0]
+                else:
+                    geom = MultiPolygon(polygons)
+                    
+                if not geom.is_valid:
+                    logger.warning(f"Invalid polygon geometry for {name}, attempting to fix")
+                    geom = geom.buffer(0)
+                    
+                prepared = prep(geom)
+                geofences[name] = GeofenceArea(
+                    name=name, polygon=geom, prepared_polygon=prepared
+                )
+            except Exception as e:
+                logger.warning(f"Error parsing Poracle geofence feature {item.get('name')}: {e}")
+                continue
+                
+        return geofences
 
     def _parse_geojson(self, geojson: Dict) -> Dict[str, GeofenceArea]:
         """
