@@ -272,7 +272,7 @@ class LazyIVQueueServer:
 
     async def start(self) -> None:
         """Start the API server."""
-        self._app = web.Application()
+        self._app = web.Application(client_max_size=1024**2 * 50)
         self._app.router.add_post("/webhook", self.handle_webhook)
         self._app.router.add_get("/health", self.handle_health)
         self._app.router.add_get("/stats", self.handle_stats)
