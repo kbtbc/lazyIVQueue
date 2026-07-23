@@ -93,8 +93,7 @@ headers = ["HeaderName: Value"]
 When `AUTO_RARITY=TRUE`, LazyIVQueue dynamically tracks Pokemon spawn rarity and queues rare Pokemon automatically.
 
 ### How it works
-
-1. **Census Webhook**: Configure Golbat to send ALL Pokemon spawns to `/webhook/census`
+1. **Webhook**: Configure Golbat to send ALL Pokemon spawns to `/webhook`. The system automatically handles both rarity tracking and queue filtering from the single endpoint.
 2. **Rarity Tracking**: The system tracks active spawns per area (or globally if Koji disabled)
 3. **Calibration**: During the calibration period, only ivlist/celllist Pokemon are queued
 4. **Dynamic Queueing**: After calibration, Pokemon with rarity rank below the threshold are queued
@@ -117,11 +116,6 @@ url = "http://localhost:7070/webhook"
 types = ["pokemon"]
 headers = ["HeaderName: Value"]
 
-# Census webhook for rarity tracking (ALL spawns)
-[[webhooks]]
-url = "http://localhost:7070/webhook/census"
-types = ["pokemon"]
-headers = ["HeaderName: Value"]
 ```
 
 ## Run
