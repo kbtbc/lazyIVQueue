@@ -38,9 +38,6 @@ All configuration is done via `config.json`.
 
 **Dragonite Scout API**
 - `dragonite.api_base_url` - Dragonite Scout API endpoint (e.g., `http://127.0.0.1:7272`)
-- `dragonite.api_username` / `dragonite.api_password` - Basic auth credentials (optional)
-- `dragonite.api_key` - API key auth (optional)
-- `dragonite.bearer_key` - Bearer token auth (optional)
 
 **Koji Geofences**
 - `koji.filter_with_koji` - Enable geofence filtering (default: `true`). Set to `false` to skip geofence checks
@@ -106,7 +103,7 @@ LazyIVQueue supports two ways to calculate rarity, controlled by `auto_rarity.sy
 1. **Lazy (Rank-Based)**: (Default) Rarity is area-based on absolute rank (e.g. iv_threshold=50 for top 50 rarest Pokemon each area).
 2. **Poracle (Percentage-Based)**: Rarity is determined by the percentage of total active spawns globally. This mimics PoracleJS categories but numbered asc from rarest (1 = Unseen, 2 = Ultra Rare, 3 = Very Rare, 4 = Rare, 5 = Uncommon).  (e.g. iv_threshold=3 for Vary Rare)   Rarity level can be further fine-tuned below.
 
-**Example Poracle Configuration:**
+**Example Rarity Configuration:**
 ```json
 "auto_rarity": {
     "enabled": true,
@@ -206,7 +203,7 @@ curl -X POST http://localhost:7070/reload
 
 ### Hot Reload
 
-The `/reload` endpoint allows you to update config.json values without restarting the service.
+The `/reload` endpoint allows you to update config.json values without restarting the service, can be triggered via dashboard.
 
 **Reloadable settings:**
 - `ivlist`, `celllist`, `denylist` - Priority/block lists
