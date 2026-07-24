@@ -67,7 +67,8 @@ All configuration is done via `config.json`.
 - `scout.timeout_iv` - Seconds to wait for IV data before removing from queue (default: 120)
 - `scout.wild_scout_delay` - Seconds to hold `wild`/`nearby_stop` entries before scouting (default: `0`). Set to `15` if your scanner sends encounters immediately to prevent wasting a scout on natural IV spawns
 
-**Geofence Cache**
+**Geofence Settings**
+- `geofences.file_path` - Use a local geofence json file instead of a Koji project.  Location relative to root, ie. ./geofence.json (default: empty =Koji)
 - `geofences.expire_cache_seconds` - How long to cache geofences before expiring (default: 1800)
 - `geofences.refresh_cache_seconds` - How often to refresh geofences from Koji (default: 1800)
 
