@@ -430,6 +430,18 @@ class RarityManager:
                 for pk, count in rankings[:10]
             ]
 
+        # Get top rarest globally (aggregated)
+        global_pokemon_counts = {}
+        for area, rankings in self._rankings.items():
+            for pk, count in rankings:
+                global_pokemon_counts[pk] = global_pokemon_counts.get(pk, 0) + count
+        
+        sorted_global = sorted(global_pokemon_counts.items(), key=lambda x: x[1])
+        top_rarest_global = [
+            {"rank": idx + 1, "pokemon": f"{get_pokemon_name(int(pk.split(':')[0]) if ':' in pk else int(pk))} {pk}", "count": count}
+            for idx, (pk, count) in enumerate(sorted_global[:20])
+        ]
+
         return {
             "status": self._status,
             "calibration_remaining_seconds": int(calibration_remaining) if self._status == "CALIBRATING" else 0,
@@ -445,6 +457,7 @@ class RarityManager:
             },
             "by_area": area_stats,
             "top_rarest_by_area": top_rarest,
+            "top_rarest_global": top_rarest_global,
         }
 
     async def stop(self) -> None:

@@ -70,12 +70,26 @@
                 </div>
             </div>
 
-            <div class="card">
+            <div class="card flex flex-col">
                 <h3 class="metric-label">Auto Rarity Status</h3>
                 <p class="metric-value" id="rarity-status">--</p>
-                <div class="mt-4 flex justify-between text-sm">
-                    <span class="text-gray-500">Active Spawns: <span class="font-medium text-gray-900" id="active-spawns">--</span></span>
-                    <span class="text-gray-500">Areas: <span class="font-medium text-gray-900" id="tracked-areas">--</span></span>
+                <div class="mt-1 text-xs text-gray-500 hidden" id="rarity-last-update-container">
+                    Last update: <span id="rarity-last-update" class="font-medium text-gray-700">--</span>
+                </div>
+                <div class="mt-auto pt-4 flex flex-col text-sm border-b border-gray-100 pb-3 mb-2">
+                    <div class="flex justify-between mb-1">
+                        <span class="text-gray-500">Active Spawns:</span><span class="font-medium text-gray-900" id="active-spawns">--</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Areas:</span><span class="font-medium text-gray-900" id="tracked-areas">--</span>
+                    </div>
+                </div>
+                
+                <div class="text-sm">
+                    <h4 class="font-medium text-gray-700 mb-2 flex items-center gap-1"><svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path></svg> Active Rares</h4>
+                    <div id="active-rares-list" class="flex flex-col gap-1 max-h-48 overflow-y-auto">
+                        <p class="text-xs text-gray-400 italic">No active rares...</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -96,6 +110,47 @@
             </div>
         </div>
 
+        <!-- Active Queue Preview -->
+        <div class="card mb-8">
+            <h3 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                Queue Preview (<span id="queue-preview-count">0</span>)
+            </h3>
+            <div id="queue-preview-list" class="flex flex-col gap-1 overflow-auto max-h-80">
+                <p class="text-sm text-gray-500 py-2 italic">Loading...</p>
+            </div>
+        </div>
+
+        <!-- Pokemon Activity Top 10 Aggregate Chart -->
+        <div class="card mb-8">
+            <h3 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                Total Pokemon Activity (Top 10)
+            </h3>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2 relative h-80">
+                    <canvas id="topPokemonChart"></canvas>
+                </div>
+                <div class="flex flex-col">
+                    <h4 class="font-medium text-gray-700 mb-3 border-b border-gray-100 pb-2">Aggregate Rankings</h4>
+                    <div id="list-aggregate" class="flex flex-col gap-1 overflow-auto max-h-72">
+                        <p class="text-sm text-gray-500 py-2 italic">Waiting for data...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Individual Area Rarity Rankings -->
+        <div class="card mb-8">
+            <h3 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                Area Rarity Rankings
+            </h3>
+            <div id="area-rares-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <p class="text-sm text-gray-500 py-2 italic col-span-full">Waiting for rarity calibration...</p>
+            </div>
+        </div>
+
         <!-- Raw JSON Viewer -->
         <div class="card">
             <div class="flex justify-between items-center mb-4">
@@ -109,6 +164,34 @@
     <script>
         let sessionChart = null;
         let sourceChart = null;
+        let topPokemonChart = null;
+        
+        let topPokemonHistory = {};
+        let topPokemonTimeLabels = [];
+        const MAX_HISTORY_POINTS = 20;
+        const chartColors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
+        
+        const expandedStates = {
+            'list-aggregate': false,
+            'queue-preview-list': false
+        };
+
+        function toggleExpand(elementId) {
+            expandedStates[elementId] = !expandedStates[elementId];
+            const el = document.getElementById(elementId);
+            const items = el.querySelectorAll('.list-item-hidden');
+            items.forEach(item => {
+                if (expandedStates[elementId]) {
+                    item.classList.remove('hidden');
+                } else {
+                    item.classList.add('hidden');
+                }
+            });
+            const btn = document.getElementById(elementId + '-btn');
+            if (btn) {
+                btn.textContent = expandedStates[elementId] ? 'Show less' : 'Show all';
+            }
+        }
 
         function initCharts() {
             const ctxSession = document.getElementById('sessionChart').getContext('2d');
@@ -160,6 +243,27 @@
                     }
                 }
             });
+
+            const ctxTop = document.getElementById('topPokemonChart').getContext('2d');
+            topPokemonChart = new Chart(ctxTop, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: []
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 500 },
+                    plugins: {
+                        legend: { position: 'right' }
+                    },
+                    scales: {
+                        x: { display: true },
+                        y: { display: true, beginAtZero: true }
+                    }
+                }
+            });
         }
 
         function updateCharts(stats) {
@@ -201,6 +305,173 @@
             sourceChart.update();
         }
 
+        function aggregateTotalPokemonStats(by_pokemon) {
+            const totals = {};
+            const statKeys = ['queued', 'matches', 'timeouts', 'early_iv', 'wild_early'];
+            for (const source of ['wild', 'nearby_stop', 'nearby_cell']) {
+                for (const statKey of statKeys) {
+                    const stats = by_pokemon[source]?.[statKey] || {};
+                    for (const [pokemon, count] of Object.entries(stats)) {
+                        totals[pokemon] = (totals[pokemon] || 0) + count;
+                    }
+                }
+            }
+            return Object.entries(totals)
+                .map(([pokemon, count]) => ({ pokemon, count }))
+                .sort((a, b) => b.count - a.count);
+        }
+
+        function aggregatePokemonStats(by_pokemon, statKey) {
+            const totals = {};
+            for (const source of ['wild', 'nearby_stop', 'nearby_cell']) {
+                const stats = by_pokemon[source]?.[statKey] || {};
+                for (const [pokemon, count] of Object.entries(stats)) {
+                    totals[pokemon] = (totals[pokemon] || 0) + count;
+                }
+            }
+            return Object.entries(totals)
+                .map(([pokemon, count]) => ({ pokemon, count }))
+                .sort((a, b) => b.count - a.count);
+        }
+
+        function renderPokemonList(elementId, dataList) {
+            const el = document.getElementById(elementId);
+            el.innerHTML = '';
+            if (dataList.length === 0) {
+                el.innerHTML = '<p class="text-sm text-gray-500 py-1 text-center italic w-full">No data yet</p>';
+                return;
+            }
+            
+            const isExpanded = expandedStates[elementId];
+            
+            dataList.forEach((item, index) => {
+                const div = document.createElement('div');
+                div.className = 'flex justify-between items-center text-sm py-0.5';
+                if (index >= 10) {
+                    div.classList.add('list-item-hidden');
+                    if (!isExpanded) {
+                        div.classList.add('hidden');
+                    }
+                }
+                div.innerHTML = `
+                    <span class="font-medium text-gray-700">${item.pokemon}</span>
+                    <span class="text-gray-500 text-xs">${item.count}</span>
+                `;
+                el.appendChild(div);
+            });
+            
+            if (dataList.length > 10) {
+                const btn = document.createElement('button');
+                btn.id = elementId + '-btn';
+                btn.className = 'text-xs text-blue-600 hover:text-blue-800 mt-2 text-left font-medium';
+                btn.textContent = isExpanded ? 'Show less' : 'Show all';
+                btn.onclick = () => toggleExpand(elementId);
+                el.appendChild(btn);
+            }
+        }
+
+        function updateTopPokemonChart(aggregatedData) {
+            const top10 = aggregatedData.slice(0, 10);
+            const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            
+            topPokemonTimeLabels.push(now);
+            if (topPokemonTimeLabels.length > MAX_HISTORY_POINTS) {
+                topPokemonTimeLabels.shift();
+            }
+
+            // Record data for current top 10
+            top10.forEach(item => {
+                if (!topPokemonHistory[item.pokemon]) {
+                    // Fill previous history with 0s if they just appeared
+                    topPokemonHistory[item.pokemon] = new Array(topPokemonTimeLabels.length - 1).fill(0);
+                }
+                topPokemonHistory[item.pokemon].push(item.count);
+            });
+
+            // Update any historical entries that fell out of the top 10
+            Object.keys(topPokemonHistory).forEach(pokemonName => {
+                if (!top10.find(d => d.pokemon === pokemonName)) {
+                    const found = aggregatedData.find(d => d.pokemon === pokemonName);
+                    topPokemonHistory[pokemonName].push(found ? found.count : 0);
+                }
+                if (topPokemonHistory[pokemonName].length > MAX_HISTORY_POINTS) {
+                    topPokemonHistory[pokemonName].shift();
+                }
+            });
+
+            const datasets = top10.map((item, i) => {
+                return {
+                    label: item.pokemon,
+                    data: topPokemonHistory[item.pokemon],
+                    borderColor: chartColors[i % chartColors.length],
+                    backgroundColor: chartColors[i % chartColors.length],
+                    tension: 0.3,
+                    fill: false
+                };
+            });
+
+            if (topPokemonChart) {
+                topPokemonChart.data.labels = topPokemonTimeLabels;
+                topPokemonChart.data.datasets = datasets;
+                topPokemonChart.update();
+            }
+        }
+
+        async function fetchQueuePreview() {
+            try {
+                const response = await fetch('/queue?count=100');
+                if (!response.ok) return;
+                const data = await response.json();
+                
+                // Update count in title
+                const countElem = document.getElementById('queue-preview-count');
+                if (countElem) {
+                    countElem.textContent = data.entries ? data.entries.length : 0;
+                }
+                
+                const elId = 'queue-preview-list';
+                const el = document.getElementById(elId);
+                el.innerHTML = '';
+                
+                if (!data.entries || data.entries.length === 0) {
+                    el.innerHTML = '<p class="text-sm text-gray-500 py-1 italic w-full">Queue is currently empty.</p>';
+                    return;
+                }
+                
+                const isExpanded = expandedStates[elId];
+                
+                data.entries.forEach((item, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'flex justify-between items-center text-sm py-0.5 border-b border-gray-50 last:border-0';
+                    if (index >= 10) {
+                        div.classList.add('list-item-hidden');
+                        if (!isExpanded) {
+                            div.classList.add('hidden');
+                        }
+                    }
+                    div.innerHTML = `
+                        <div class="flex items-center gap-2">
+                            <span class="text-gray-400 text-xs w-6">#${index + 1}</span>
+                            <span class="font-medium text-gray-800">${item.pokemon}</span>
+                        </div>
+                        <span class="text-gray-400 text-xs truncate max-w-[150px]" title="${item.area}">${item.area}</span>
+                    `;
+                    el.appendChild(div);
+                });
+                
+                if (data.entries.length > 10) {
+                    const btn = document.createElement('button');
+                    btn.id = elId + '-btn';
+                    btn.className = 'text-xs text-blue-600 hover:text-blue-800 mt-2 text-left font-medium';
+                    btn.textContent = isExpanded ? 'Show less' : 'Show all';
+                    btn.onclick = () => toggleExpand(elId);
+                    el.appendChild(btn);
+                }
+            } catch (err) {
+                console.error("Failed to fetch queue preview:", err);
+            }
+        }
+
         async function fetchStats() {
             try {
                 const response = await fetch('/stats');
@@ -238,24 +509,152 @@
                 // Rarity Metrics
                 if (data.rarity) {
                     const statusElem = document.getElementById('rarity-status');
-                    if (data.rarity.is_calibrated) {
-                        statusElem.textContent = 'Calibrated';
+                    if (data.rarity.status === 'READY') {
+                        statusElem.textContent = 'Active';
                         statusElem.className = 'metric-value text-blue-600';
-                    } else {
-                        const mins = Math.ceil((data.rarity.calibration_remaining || 0) / 60);
+                        
+                        // Handle last ranking time
+                        if (data.rarity.last_ranking_time) {
+                            const lastUpdate = new Date(data.rarity.last_ranking_time * 1000);
+                            document.getElementById('rarity-last-update-container').classList.remove('hidden');
+                            document.getElementById('rarity-last-update').textContent = lastUpdate.toLocaleTimeString();
+                        }
+                    } else if (data.rarity.status === 'CALIBRATING') {
+                        const mins = Math.ceil((data.rarity.calibration_remaining_seconds || 0) / 60);
                         statusElem.textContent = 'Calibrating (' + mins + 'm)';
                         statusElem.className = 'metric-value text-yellow-500';
+                        document.getElementById('rarity-last-update-container').classList.add('hidden');
+                    } else {
+                        statusElem.textContent = data.rarity.status || 'Disabled';
+                        statusElem.className = 'metric-value text-gray-500';
+                        document.getElementById('rarity-last-update-container').classList.add('hidden');
                     }
                     
                     document.getElementById('active-spawns').textContent = data.rarity.total_active_spawns || 0;
                     document.getElementById('tracked-areas').textContent = data.rarity.areas_tracked || 0;
+                    
+                    // Render active rares (global)
+                    const raresEl = document.getElementById('active-rares-list');
+                    if (data.rarity.top_rarest_global && data.rarity.top_rarest_global.length > 0) {
+                        raresEl.innerHTML = '';
+                        
+                        const elId = 'rares-global';
+                        if (expandedStates[elId] === undefined) {
+                            expandedStates[elId] = false;
+                        }
+                        const isExpanded = expandedStates[elId];
+                        
+                        data.rarity.top_rarest_global.forEach((item, index) => {
+                            const row = document.createElement('div');
+                            row.className = 'flex justify-between items-center text-xs py-1 border-b border-gray-100 last:border-0';
+                            
+                            if (index >= 5) {
+                                row.classList.add('list-item-hidden');
+                                if (!isExpanded) {
+                                    row.classList.add('hidden');
+                                }
+                            }
+                            
+                            row.innerHTML = `
+                                <div class="flex items-center gap-2">
+                                    <span class="text-gray-400 w-4 text-right">#${item.rank}</span>
+                                    <span class="font-medium text-gray-700 truncate max-w-[100px]" title="${item.pokemon}">${item.pokemon}</span>
+                                </div>
+                                <span class="bg-orange-100 text-orange-800 px-1.5 rounded-full font-medium border border-orange-200">${item.count} seen</span>
+                            `;
+                            raresEl.appendChild(row);
+                        });
+                        
+                        if (data.rarity.top_rarest_global.length > 5) {
+                            const btn = document.createElement('button');
+                            btn.id = elId + '-btn';
+                            btn.className = 'text-xs text-blue-600 hover:text-blue-800 mt-1 text-left font-medium w-max';
+                            btn.textContent = isExpanded ? 'Show less' : 'Show all';
+                            btn.onclick = () => toggleExpand(elId);
+                            raresEl.appendChild(btn);
+                        }
+                    } else {
+                        raresEl.innerHTML = '<p class="text-xs text-gray-400 italic py-1">No active rares or still calibrating.</p>';
+                    }
+                    
+                    // Render individual area rares
+                    const areaRaresEl = document.getElementById('area-rares-list');
+                    if (data.rarity.top_rarest_by_area && Object.keys(data.rarity.top_rarest_by_area).length > 0) {
+                        areaRaresEl.innerHTML = '';
+                        for (const [area, pokemonList] of Object.entries(data.rarity.top_rarest_by_area)) {
+                            if (pokemonList.length === 0) continue;
+                            
+                            const areaDiv = document.createElement('div');
+                            areaDiv.className = 'flex flex-col gap-2 border border-gray-100 p-4 rounded-lg bg-gray-50';
+                            
+                            const areaTitle = document.createElement('h4');
+                            areaTitle.className = 'font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-1';
+                            areaTitle.textContent = area;
+                            areaDiv.appendChild(areaTitle);
+                            
+                            const listDiv = document.createElement('div');
+                            listDiv.className = 'flex flex-col gap-1';
+                            
+                            const elId = 'rares-' + area.replace(/[^a-zA-Z0-9]/g, '-');
+                            listDiv.id = elId;
+                            if (expandedStates[elId] === undefined) {
+                                expandedStates[elId] = false;
+                            }
+                            const isExpanded = expandedStates[elId];
+                            
+                            pokemonList.forEach((item, index) => {
+                                const row = document.createElement('div');
+                                row.className = 'flex justify-between items-center text-sm py-0.5 border-b border-gray-200 last:border-0';
+                                
+                                if (index >= 5) {
+                                    row.classList.add('list-item-hidden');
+                                    if (!isExpanded) {
+                                        row.classList.add('hidden');
+                                    }
+                                }
+                                
+                                row.innerHTML = `
+                                    <span class="font-medium text-gray-700">${item.pokemon}</span>
+                                    <span class="text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full font-medium border border-orange-200">${item.count}</span>
+                                `;
+                                listDiv.appendChild(row);
+                            });
+                            
+                            if (pokemonList.length > 5) {
+                                const btn = document.createElement('button');
+                                btn.id = elId + '-btn';
+                                btn.className = 'text-xs text-blue-600 hover:text-blue-800 mt-2 text-left font-medium w-max';
+                                btn.textContent = isExpanded ? 'Show less' : 'Show all';
+                                btn.onclick = () => toggleExpand(elId);
+                                listDiv.appendChild(btn);
+                            }
+                            
+                            areaDiv.appendChild(listDiv);
+                            areaRaresEl.appendChild(areaDiv);
+                        }
+                    } else {
+                        areaRaresEl.innerHTML = '<p class="text-sm text-gray-500 py-2 italic col-span-full">No active area rares or still calibrating.</p>';
+                    }
+                    
                 } else {
                     document.getElementById('rarity-status').textContent = 'Disabled';
                     document.getElementById('rarity-status').className = 'metric-value text-gray-400';
+                    document.getElementById('rarity-last-update-container').classList.add('hidden');
+                    document.getElementById('active-rares-list').innerHTML = '<p class="text-xs text-gray-400 italic py-1">Auto Rarity is disabled.</p>';
+                    document.getElementById('area-rares-list').innerHTML = '<p class="text-sm text-gray-500 py-2 italic col-span-full">Auto Rarity is disabled.</p>';
                 }
 
                 // Charts
                 updateCharts(data);
+
+                // Pokemon Lists
+                if (data.queue && data.queue.session && data.queue.session.by_pokemon) {
+                    const by_pokemon = data.queue.session.by_pokemon;
+                    const aggregateData = aggregateTotalPokemonStats(by_pokemon);
+                    
+                    renderPokemonList('list-aggregate', aggregateData);
+                    updateTopPokemonChart(aggregateData);
+                }
 
             } catch (error) {
                 document.getElementById('connection-status').textContent = 'Disconnected';
@@ -268,7 +667,7 @@
             try {
                 const response = await fetch('/reload', { method: 'POST' });
                 const data = await response.json();
-                alert('Reload successful!\nChanges: ' + data.changes_count);
+                alert('Reload successful!\\nChanges: ' + data.changes_count);
                 fetchStats();
             } catch (error) {
                 alert('Error triggering reload: ' + error);
@@ -283,7 +682,11 @@
         window.onload = () => {
             initCharts();
             fetchStats();
-            setInterval(fetchStats, 5000);
+            fetchQueuePreview();
+            setInterval(() => {
+                fetchStats();
+                fetchQueuePreview();
+            }, 5000);
         };
     </script>
 </body>
