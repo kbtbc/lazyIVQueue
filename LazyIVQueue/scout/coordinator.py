@@ -106,7 +106,7 @@ class ScoutCoordinator:
                 coordinates = generate_9_point_grid(entry.s2_cell_id)
                 coord_count = len(coordinates)
                 logger.debug(
-                    f"Sending S2 Grid scout request: Pokemon {entry.pokemon_display} "
+                    f"Sending S2 Grid scout request: {entry.pokemon_display} "
                     f"at ({entry.lat:.6f}, {entry.lon:.6f}) in {entry.area} "
                     f"[s2_cell: {entry.s2_cell_id}] ({coord_count} coords)"
                 )
@@ -115,7 +115,7 @@ class ScoutCoordinator:
                 # Single coordinate for wild/nearby_stop
                 coord_count = 1
                 logger.debug(
-                    f"Sending scout request: Pokemon {entry.pokemon_display} "
+                    f"Sending scout request: {entry.pokemon_display} "
                     f"at ({entry.lat:.6f}, {entry.lon:.6f}) in {entry.area} "
                     f"[encounter_id: {entry.encounter_id}]"
                 )
@@ -128,13 +128,13 @@ class ScoutCoordinator:
             # Log based on scout type (celllist vs ivlist)
             if entry.s2_cell_id:
                 logger.opt(colors=True).info(
-                    f"<cyan>[>]</cyan> Scout sent: Pokemon {entry.pokemon_display} in {entry.area} "
+                    f"<cyan>[>]</cyan> Scout sent: {entry.pokemon_display} in {entry.area} "
                     f"at ({entry.lat:.6f}, {entry.lon:.6f}) [s2_cell: {entry.s2_cell_id}] "
                     f"(9-point grid: {coord_count} coords)"
                 )
             else:
                 logger.opt(colors=True).info(
-                    f"<cyan>[>]</cyan> Scout sent: Pokemon {entry.pokemon_display} in {entry.area} "
+                    f"<cyan>[>]</cyan> Scout sent: {entry.pokemon_display} in {entry.area} "
                     f"at ({entry.lat:.6f}, {entry.lon:.6f}) [encounter_id: {entry.encounter_id}]"
                 )
             logger.debug(
@@ -149,7 +149,7 @@ class ScoutCoordinator:
             self._total_scouts += 1
             self._failed_scouts += 1
             logger.opt(colors=True).error(
-                f"<red>[!]</red> Scout failed: Pokemon {entry.pokemon_display} "
+                f"<red>[!]</red> Scout failed: {entry.pokemon_display} "
                 f"[encounter_id: {entry.encounter_id}] - {e}"
             )
 

@@ -5,6 +5,7 @@ import asyncio
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from LazyIVQueue.utils.logger import logger
+from LazyIVQueue.utils.pokemon_names import get_pokemon_name
 import LazyIVQueue.config as AppConfig
 
 
@@ -118,7 +119,7 @@ class RarityManager:
             if pokemon_key not in self._actives[area]:
                 self._actives[area][pokemon_key] = []
 
-           # Add spawn
+            # Add spawn
             self._actives[area][pokemon_key].append(despawn_time)
             self._total_spawns_tracked += 1
 
@@ -131,8 +132,10 @@ class RarityManager:
         # Log outside the lock
         if should_log:
             self.log_census_status()
-
-        logger.trace(f"Census: {pokemon_key} in {area} (despawn: {despawn_time})")
+        
+        base_id = int(pokemon_key.split(":")[0]) if ":" in pokemon_key else int(pokemon_key)
+        display_name = f"{get_pokemon_name(base_id)} {pokemon_key}"
+        logger.trace(f"Census: {display_name} in {area} (despawn: {despawn_time})")
 
     def get_rarity_rank(
         self, pokemon_id: int, form: Optional[int], area: str
@@ -393,7 +396,7 @@ class RarityManager:
                     {
                         "area_rank": idx + 1,  # 1-based ranking (0 = unknown)
                         "global_rank": self._global_rank_cache.get((pk, area_name)),
-                        "pokemon": pk,
+                        "pokemon": f"{get_pokemon_name(int(pk.split(':')[0]) if ':' in pk else int(pk))} {pk}",
                         "active_count": count,
                         "would_queue": self._global_rank_cache.get((pk, area_name), 0) <= AppConfig.iv_threshold,
                     }
@@ -423,7 +426,7 @@ class RarityManager:
         top_rarest = {}
         for area, rankings in self._rankings.items():
             top_rarest[area] = [
-                {"pokemon": pk, "count": count}
+                {"pokemon": f"{get_pokemon_name(int(pk.split(':')[0]) if ':' in pk else int(pk))} {pk}", "count": count}
                 for pk, count in rankings[:10]
             ]
 

@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
+from LazyIVQueue.utils.pokemon_names import get_pokemon_name
 import LazyIVQueue.config as AppConfig
 
 
@@ -61,9 +62,10 @@ class QueueEntry:
     @property
     def pokemon_display(self) -> str:
         """Human-readable pokemon identifier."""
+        name_str = f"{get_pokemon_name(self.pokemon_id)} "
         if self.form is not None:
-            return f"{self.pokemon_id}:{self.form}"
-        return str(self.pokemon_id)
+            return f"{name_str}{self.pokemon_id}:{self.form}"
+        return f"{name_str}{self.pokemon_id}"
 
 
 class IVQueueManager:
@@ -614,7 +616,7 @@ class IVQueueManager:
                 logger.debug("Next entries in queue:")
                 for i, entry in enumerate(preview, 1):
                     logger.debug(
-                        f"  {i}. Pokemon {entry['pokemon']} in {entry['area']} "
+                        f"  {i}. {entry['pokemon']} in {entry['area']} "
                         f"(priority {entry['priority']})"
                     )
 
@@ -634,7 +636,7 @@ class IVQueueManager:
                 if entry.disappear_time and entry.disappear_time < current_time:
                     state = "awaiting IV" if entry.is_scouting else "pending"
                     logger.opt(colors=True).debug(
-                        f"<red>[x]</red> Expired: Pokemon {entry.pokemon_display} in {entry.area} "
+                        f"<red>[x]</red> Expired: {entry.pokemon_display} in {entry.area} "
                         f"[encounter_id: {entry.encounter_id}] - despawned while {state}"
                     )
 
@@ -682,7 +684,7 @@ class IVQueueManager:
                     elapsed = current_time - entry.scout_started_at
                     if elapsed > timeout_threshold:
                         logger.opt(colors=True).debug(
-                            f"<red>[x]</red> Scout timeout: Pokemon {entry.pokemon_display} in {entry.area} "
+                            f"<red>[x]</red> Scout timeout: {entry.pokemon_display} in {entry.area} "
                             f"[encounter_id: {entry.encounter_id}] - no IV after {int(elapsed)}s"
                         )
                         pokemon_display = entry.pokemon_display

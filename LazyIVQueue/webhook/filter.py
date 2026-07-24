@@ -16,6 +16,7 @@ from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.utils.koji_geofences import KojiGeofenceManager
 from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
 from LazyIVQueue.utils.s2_utils import get_s2_cell_id
+from LazyIVQueue.utils.pokemon_names import get_pokemon_name
 from LazyIVQueue.queue.iv_queue import IVQueueManager, QueueEntry
 from LazyIVQueue.rarity.manager import RarityManager
 import LazyIVQueue.config as AppConfig
@@ -57,9 +58,10 @@ class PokemonData:
     @property
     def pokemon_display(self) -> str:
         """Human-readable pokemon identifier."""
+        name_str = f"{get_pokemon_name(self.pokemon_id)} "
         if self.form is not None:
-            return f"{self.pokemon_id}:{self.form}"
-        return str(self.pokemon_id)
+            return f"{name_str}{self.pokemon_id}:{self.form}"
+        return f"{name_str}{self.pokemon_id}"
 
     @property
     def iv_total(self) -> int:
@@ -225,7 +227,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
 
     # Denylist check: reject before any priority resolution (covers ivlist, celllist, auto_rarity)
     if is_in_denylist(pokemon):
-        logger.trace(f"Pokemon {pokemon.pokemon_display} in denylist, skipping")
+        logger.trace(f"{pokemon.pokemon_display} in denylist, skipping")
         return
 
     if seen_type == "nearby_cell":
@@ -237,7 +239,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
             list_type = "celllist"
         else:
             # Not in celllist = skip entirely (don't fall through to ivlist)
-            logger.trace(f"Pokemon {pokemon.pokemon_display} nearby_cell not in celllist, skipping")
+            logger.trace(f"{pokemon.pokemon_display} nearby_cell not in celllist, skipping")
             return
     else:
         # wild/nearby_stop: Check ivlist first (VIP override)
@@ -270,7 +272,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
                 area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
                 if not area:
                     logger.debug(
-                        f"Pokemon {pokemon.pokemon_display} at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
+                        f"{pokemon.pokemon_display} at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
                         f"outside geofences, skipping"
                     )
                     return
@@ -296,11 +298,11 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
                 )
             else:
                 logger.trace(
-                    f"Pokemon {pokemon.pokemon_display} rank {rank} > threshold {AppConfig.iv_threshold}, skipping"
+                    f"{pokemon.pokemon_display} rank {rank} > threshold {AppConfig.iv_threshold}, skipping"
                 )
                 return
         else:
-            logger.trace(f"Pokemon {pokemon.pokemon_display} not in ivlist, skipping")
+            logger.trace(f"{pokemon.pokemon_display} not in ivlist, skipping")
             return
 
     # Check 3: Geofence check (optional based on config)
@@ -312,7 +314,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
             area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
             if not area:
                 logger.debug(
-                    f"Pokemon {pokemon.pokemon_display} at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
+                    f"{pokemon.pokemon_display} at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
                     f"outside geofences, skipping"
                 )
                 return
@@ -343,7 +345,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
     added = await queue.add(entry)
     if added:
         logger.opt(colors=True).info(
-            f"<green>[+]</green> Queued: Pokemon {pokemon.pokemon_display} in {area} "
+            f"<green>[+]</green> Queued: {pokemon.pokemon_display} in {area} "
             f"(priority {priority}, {list_type}, {seen_type})"
         )
         # Log queue status with next entries preview
@@ -404,7 +406,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
         if removed.was_scouted or removed.is_scouting:
             queue.record_match(pokemon.pokemon_display, removed.seen_type)
             logger.opt(colors=True).success(
-                f"<green>[<]</green> Match found ({removed.list_type}): Pokemon {pokemon.pokemon_display} in {area} - "
+                f"<green>[<]</green> Match found ({removed.list_type}): {pokemon.pokemon_display} in {area} - "
                 f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
                 f"({pokemon.iv_percent}%)"
             )
@@ -412,14 +414,14 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
         elif removed.eligible_at > 0.0:
             queue.record_wild_early_iv(pokemon.pokemon_display, removed.seen_type)
             logger.opt(colors=True).success(
-                f"<cyan>[<]</cyan> Wild Early IV ({removed.list_type}): Pokemon {pokemon.pokemon_display} in {area} - "
+                f"<cyan>[<]</cyan> Wild Early IV ({removed.list_type}): {pokemon.pokemon_display} in {area} - "
                 f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
                 f"({pokemon.iv_percent}%)"
             )
         else:
             queue.record_early_iv(pokemon.pokemon_display, removed.seen_type)
             logger.opt(colors=True).success(
-                f"<magenta>[<]</magenta> Early IV ({removed.list_type}): Pokemon {pokemon.pokemon_display} in {area} - "
+                f"<magenta>[<]</magenta> Early IV ({removed.list_type}): {pokemon.pokemon_display} in {area} - "
                 f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
                 f"({pokemon.iv_percent}%)"
             )
