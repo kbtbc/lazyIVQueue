@@ -198,19 +198,19 @@
             sessionChart = new Chart(ctxSession, {
                 type: 'bar',
                 data: {
-                    labels: ['Queued', 'Matches', 'Early IV', 'Timeouts'],
+                    labels: ['Queued', 'Matches', 'Early IV', 'Wild Early', 'Timeouts'],
                     datasets: [{
                         label: 'Wild',
                         backgroundColor: '#3b82f6',
-                        data: [0, 0, 0, 0]
+                        data: [0, 0, 0, 0, 0]
                     }, {
                         label: 'Nearby Stop',
                         backgroundColor: '#8b5cf6',
-                        data: [0, 0, 0, 0]
+                        data: [0, 0, 0, 0, 0]
                     }, {
                         label: 'Nearby Cell',
                         backgroundColor: '#10b981',
-                        data: [0, 0, 0, 0]
+                        data: [0, 0, 0, 0, 0]
                     }]
                 },
                 options: {
@@ -276,18 +276,21 @@
                 session.total_queued.wild || 0,
                 session.total_matches.wild || 0,
                 session.total_early_iv.wild || 0,
+                session.total_wild_early.wild || 0,
                 session.total_timeouts.wild || 0
             ];
             const stopData = [
                 session.total_queued.nearby_stop || 0,
                 session.total_matches.nearby_stop || 0,
                 session.total_early_iv.nearby_stop || 0,
+                session.total_wild_early.nearby_stop || 0,
                 session.total_timeouts.nearby_stop || 0
             ];
             const cellData = [
                 session.total_queued.nearby_cell || 0,
                 session.total_matches.nearby_cell || 0,
                 session.total_early_iv.nearby_cell || 0,
+                session.total_wild_early.nearby_cell || 0,
                 session.total_timeouts.nearby_cell || 0
             ];
 
