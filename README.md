@@ -39,13 +39,6 @@ All configuration is done via `config.json`.
 **Dragonite Scout API**
 - `dragonite.api_base_url` - Dragonite Scout API endpoint (e.g., `http://127.0.0.1:7272`)
 
-**Koji Geofences**
-- `koji.filter_with_koji` - Enable geofence filtering (default: `true`). Set to `false` to skip geofence checks
-- `koji.url` - Full Koji base URL (e.g., `http://koji.example.com:8080`). Alternative to IP/Port
-- `koji.ip` / `koji.port` - Koji host and port (default: `127.0.0.1:8080`)
-- `koji.token` - Koji bearer token for authentication
-- `koji.project_name` - Koji project name containing the geofences to use
-
 **Security**
 - `security.allowed_ips` - List of IPs allowed to POST webhooks (e.g., `["127.0.0.1", "192.168.1.100"]`)
 - `security.headers` - Header auth (format: `HeaderName: Value`)
@@ -66,6 +59,13 @@ All configuration is done via `config.json`.
 - `scout.concurrency` - Max concurrent scout requests - Should match the number of scouts you have set in Dragonite
 - `scout.timeout_iv` - Seconds to wait for IV data before removing from queue (default: 120)
 - `scout.wild_scout_delay` - Seconds to hold `wild`/`nearby_stop` entries before scouting (default: `0`). Set to `15` if your scanner sends encounters immediately to prevent wasting a scout on natural IV spawns
+
+**Koji Geofences**
+- `koji.filter_with_koji` - Enable geofence filtering (default: `true`). Set to `false` to skip geofence checks
+- `koji.url` - Full Koji base URL (e.g., `http://koji.example.com:8080`). Alternative to IP/Port
+- `koji.ip` / `koji.port` - Koji host and port (default: `127.0.0.1:8080`)
+- `koji.token` - Koji bearer token for authentication
+- `koji.project_name` - Koji project name containing the geofences to use
 
 **Geofence Settings**
 - `geofences.file_path` - Use a local geofence json file instead of a Koji project.  Location relative to root, ie. ./geofence.json (default: empty =Koji)
