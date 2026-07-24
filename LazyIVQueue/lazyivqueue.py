@@ -16,6 +16,7 @@ from typing import Optional
 import LazyIVQueue.config as AppConfig
 from LazyIVQueue import __version__
 from LazyIVQueue.utils.logger import logger, setup_logging
+from LazyIVQueue.utils.pokemon import load_pokemon_names
 from LazyIVQueue.utils.koji_geofences import KojiGeofenceManager
 from LazyIVQueue.queue.iv_queue import IVQueueManager
 from LazyIVQueue.scout.coordinator import ScoutCoordinator
@@ -47,6 +48,7 @@ class LazyIVQueueApp:
     async def start(self) -> None:
         """Start all application components."""
         logger.info("=" * 60)
+        await load_pokemon_names()
         logger.info(f"LazyIVQueue v{__version__} - Pokemon IV Scouting Coordinator")
         logger.info("=" * 60)
 

@@ -16,9 +16,9 @@ from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.utils.koji_geofences import KojiGeofenceManager
 from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
 from LazyIVQueue.utils.s2_utils import get_s2_cell_id
-from LazyIVQueue.utils.pokemon_names import get_pokemon_name
 from LazyIVQueue.queue.iv_queue import IVQueueManager, QueueEntry
 from LazyIVQueue.rarity.manager import RarityManager
+from LazyIVQueue.utils.pokemon import get_pokemon_name
 import LazyIVQueue.config as AppConfig
 
 
@@ -37,6 +37,7 @@ class PokemonData:
     encounter_id: Optional[str]
     disappear_time: Optional[int]
     seen_type: str  # "wild", "nearby_stop", or "nearby_cell"
+    area: Optional[str] = None  # Cached geofence area
 
     @property
     def has_iv(self) -> bool:
@@ -58,10 +59,10 @@ class PokemonData:
     @property
     def pokemon_display(self) -> str:
         """Human-readable pokemon identifier."""
-        name_str = f"{get_pokemon_name(self.pokemon_id)} "
+        name = get_pokemon_name(self.pokemon_id, self.form)
         if self.form is not None:
-            return f"{name_str}{self.pokemon_id}:{self.form}"
-        return f"{name_str}{self.pokemon_id}"
+            return f"{name} ({self.pokemon_id}:{self.form})"
+        return f"{name} ({self.pokemon_id})"
 
     @property
     def iv_total(self) -> int:
@@ -186,15 +187,34 @@ def is_in_denylist(pokemon: PokemonData) -> bool:
     return str(pokemon.pokemon_id) in AppConfig.denylist_parsed
 
 
-async def process_pokemon_webhook(raw_data: Dict[str, Any]) -> None:
+async def process_webhook_message(raw_data: Dict[str, Any]) -> None:
     """
     Main entry point for processing Pokemon webhooks.
-    Routes to appropriate filter based on IV presence.
+    Parses data once, resolves geofence once, and routes to census and/or IV queue processing.
     """
     pokemon = parse_pokemon_data(raw_data)
     if not pokemon:
         return
 
+    # Check geofence once and cache in pokemon.area
+    area = "GLOBAL"
+    if AppConfig.filter_with_koji:
+        geofence_manager = await KojiGeofenceManager.get_instance()
+        found_area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
+        if not found_area:
+            logger.debug(
+                f"{pokemon.pokemon_display} at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
+                f"outside geofences, skipping"
+            )
+            return
+        area = found_area
+    pokemon.area = area
+
+    # Route to census if enabled
+    if AppConfig.auto_rarity_enabled:
+        await process_census_pokemon(pokemon)
+
+    # Route to queue
     if pokemon.has_iv:
         await filter_iv_pokemon(pokemon)
     else:
@@ -265,60 +285,64 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
                     logger.trace(f"Auto Rarity calibrating (no VIP lists), skipping {pokemon.pokemon_display}")
                     return
 
-            # Get area for rarity lookup (need to check geofence early for auto_rarity)
-            area = "GLOBAL"
-            if AppConfig.filter_with_koji:
-                geofence_manager = await KojiGeofenceManager.get_instance()
-                area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
-                if not area:
-                    logger.debug(
-                        f"{pokemon.pokemon_display} at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
-                        f"outside geofences, skipping"
-                    )
-                    return
+            # Get area for rarity lookup (already checked in process_webhook_message)
+            area = pokemon.area or "GLOBAL" 
 
             # Get rarity rank (None = truly unknown, 1 = rarest, higher = more common)
             # High rank (beyond total tracked) = seen in census but rankings pending update
-            rank = rarity_manager.get_rarity_rank(pokemon.pokemon_id, pokemon.form, area)
-            if rank is None:
-                # Truly unknown Pokemon (never seen in census) = treat as ultra rare
-                # Tier 1000: auto_rarity (always lower priority than ivlist/celllist tier 0)
-                priority = 1000  # Top priority within auto_rarity tier
-                list_type = "auto_rarity(unknown)"
-                logger.debug(
-                    f"Auto Rarity: {pokemon.pokemon_display} unknown (not in census) in {area} - treating as ultra rare"
-                )
-            elif rank <= AppConfig.iv_threshold:
-                # Known Pokemon within threshold - queue it
-                # Tier 1000+: auto_rarity entries by rank (1000 + rank ensures lower priority than VIP tier 0)
-                priority = 1000 + rank
-                list_type = f"auto_rarity(rank={rank})"
-                logger.debug(
-                    f"Auto Rarity: {pokemon.pokemon_display} rank {rank} <= threshold {AppConfig.iv_threshold} in {area}"
-                )
+            if AppConfig.auto_rarity_system == 'poracle':
+                # Poracle uses percentage based rarity
+                pct = rarity_manager.get_rarity_percent(pokemon.pokemon_id, pokemon.form, "GLOBAL")
+                if pct is None:
+                    tier = 1
+                    priority = 1000
+                    list_type = "auto_rarity(unknown)"
+                    logger.debug(f"Auto Rarity: {pokemon.pokemon_display} unknown globally - treating as ultra rare")
+                elif pct <= AppConfig.poracle_ultra_rare:
+                    tier = 2
+                    priority = 1001
+                    list_type = f"auto_rarity(poracle-ultra-rare, pct={pct:.4f})"
+                elif pct <= AppConfig.poracle_very_rare:
+                    tier = 3
+                    priority = 1002
+                    list_type = f"auto_rarity(poracle-very-rare, pct={pct:.4f})"
+                elif pct <= AppConfig.poracle_rare:
+                    tier = 4
+                    priority = 1003
+                    list_type = f"auto_rarity(poracle-rare, pct={pct:.4f})"
+                elif pct <= AppConfig.poracle_uncommon:
+                    tier = 5
+                    priority = 1004
+                    list_type = f"auto_rarity(poracle-uncommon, pct={pct:.4f})"
+                else:
+                    logger.trace(f"Auto Rarity (Poracle): {pokemon.pokemon_display} common (pct={pct:.4f} > {AppConfig.poracle_uncommon}) - skipping")
+                    return
+                
+                if tier > AppConfig.iv_threshold:
+                    logger.trace(f"Auto Rarity (Poracle): {pokemon.pokemon_display} tier {tier} > {AppConfig.iv_threshold} - skipping")
+                    return
             else:
-                logger.trace(
-                    f"{pokemon.pokemon_display} rank {rank} > threshold {AppConfig.iv_threshold}, skipping"
-                )
-                return
+                rank = rarity_manager.get_rarity_rank(pokemon.pokemon_id, pokemon.form, area)
+                if rank is None:
+                    # Truly unknown Pokemon (never seen in census) = treat as ultra rare
+                    # Tier 1000: auto_rarity (always lower priority than ivlist/celllist tier 0)
+                    priority = 1000  # Top priority within auto_rarity tier
+                    list_type = "auto_rarity(unknown)"
+                    logger.debug(
+                        f"Auto Rarity: {pokemon.pokemon_display} unknown (not in census) in {area} - treating as ultra rare"
+                    )
+                elif rank <= AppConfig.iv_threshold:
+                    priority = 1000 + rank
+                    list_type = f"auto_rarity(rank={rank})"
+                else:
+                    logger.trace(f"Auto Rarity: {pokemon.pokemon_display} rank {rank} > {AppConfig.iv_threshold}, skipping")
+                    return
         else:
             logger.trace(f"{pokemon.pokemon_display} not in ivlist, skipping")
             return
 
-    # Check 3: Geofence check (optional based on config)
-    # Note: For auto_rarity, geofence was already checked above. For ivlist/celllist, check now.
-    if list_type in ("ivlist", "celllist"):
-        area = "GLOBAL"  # Consistent with census tracking
-        if AppConfig.filter_with_koji:
-            geofence_manager = await KojiGeofenceManager.get_instance()
-            area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
-            if not area:
-                logger.debug(
-                    f"{pokemon.pokemon_display} at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
-                    f"outside geofences, skipping"
-                )
-                return
-    # else: area was already set by auto_rarity logic above
+    # Check 3: Geofence check (already done globally)
+    area = pokemon.area or "GLOBAL"
 
     # All checks passed - add to queue
     # Simplify list_type for storage (remove rank info from auto_rarity)
@@ -373,13 +397,8 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
         # Not in VIP list and auto_rarity disabled = skip
         return
 
-    # Check 3: Geofence check (optional based on config)
-    area = "GLOBAL"
-    if AppConfig.filter_with_koji:
-        geofence_manager = await KojiGeofenceManager.get_instance()
-        area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
-        if not area:
-            return
+    # Check 3: Geofence check (already done globally)
+    area = pokemon.area or "GLOBAL" 
 
     # Check 4: Match against removal
     queue = await IVQueueManager.get_instance()
@@ -429,17 +448,13 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
         queue.log_queue_status()
 
 
-async def process_census_webhook(raw_data: Dict[str, Any]) -> None:
+async def process_census_pokemon(pokemon: PokemonData) -> None:
     """
     Process census Pokemon data for rarity tracking.
     This receives ALL spawns (not just ivlist/celllist matches).
     Tracks ALL Pokemon (with or without IV) to build accurate rarity rankings.
     """
     import time
-
-    pokemon = parse_pokemon_data(raw_data)
-    if not pokemon:
-        return
 
     # Track ALL Pokemon spawns for rarity (not just those with IVs)
     # This ensures rarity rankings are available when queue webhook arrives
@@ -449,16 +464,8 @@ async def process_census_webhook(raw_data: Dict[str, Any]) -> None:
     if pokemon.disappear_time and pokemon.disappear_time < current_time:
         return
 
-    # Determine area
-    area = "GLOBAL"
-    if AppConfig.filter_with_koji:
-        geofence_manager = await KojiGeofenceManager.get_instance()
-        found_area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
-        if found_area:
-            area = found_area
-        else:
-            # Outside geofences - skip for census too
-            return
+    # Use cached area
+    area = pokemon.area or "GLOBAL" 
 
     # Add to rarity manager
     rarity_manager = await RarityManager.get_instance()

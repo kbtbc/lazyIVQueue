@@ -1,14 +1,16 @@
 """LazyIVQueue API Server - Single HTTP server for webhooks, stats, health, and management."""
 from __future__ import annotations
 
+import json
+import os
 from typing import Optional, Set, List
 from aiohttp import web
 from LazyIVQueue.utils.logger import logger
-from LazyIVQueue.webhook.filter import process_pokemon_webhook, process_census_webhook
+from LazyIVQueue.webhook.filter import process_webhook_message
 from LazyIVQueue.rarity.manager import RarityManager
 from LazyIVQueue.queue.iv_queue import IVQueueManager
 import LazyIVQueue.config as AppConfig
-from LazyIVQueue.config import reload_config
+from LazyIVQueue.config import reload_config, CONFIG_PATH, CONFIG_EXAMPLE_PATH
 
 
 class LazyIVQueueServer:
@@ -119,7 +121,7 @@ class LazyIVQueueServer:
             )
             return web.Response(status=413, text="Payload Too Large")
         except Exception as e:
-            logger.error(f"Error processing webhook: {e}")
+            logger.exception(f"Error processing webhook: {e}")
             return web.Response(status=500, text="Internal Error")
 
     async def _process_payload(self, payload) -> None:
@@ -133,12 +135,7 @@ class LazyIVQueueServer:
             if msg_type == "pokemon":
                 pokemon_data = msg.get("message", {})
                 if pokemon_data:
-                    # Process for the rarity tracker directly if auto_rarity is enabled
-                    if AppConfig.auto_rarity_enabled:
-                        await process_census_webhook(pokemon_data)
-                        
-                    # Process for the IV Queue
-                    await process_pokemon_webhook(pokemon_data)
+                    await process_webhook_message(pokemon_data)
 
     async def handle_health(self, request: web.Request) -> web.Response:
         """Health check endpoint."""
@@ -244,6 +241,39 @@ class LazyIVQueueServer:
             logger.error(f"Error getting config: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
+    
+    async def handle_config_raw_get(self, request: web.Request) -> web.Response:
+        try:
+            target_path = CONFIG_PATH if os.path.exists(CONFIG_PATH) else CONFIG_EXAMPLE_PATH
+            with open(target_path, 'r', encoding='utf-8') as f:
+                data = f.read()
+            return web.Response(text=data, content_type='application/json')
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_config_raw_post(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.text()
+            
+            # Validate JSON
+            try:
+                json.loads(data)
+            except json.JSONDecodeError as e:
+                return web.json_response({"error": f"Invalid JSON: {e}"}, status=400)
+                
+            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+                f.write(data)
+                
+            # Trigger reload
+            changes = reload_config()
+            if "concurrency_scout" in changes:
+                queue = await IVQueueManager.get_instance()
+                await queue.update_concurrency(changes["concurrency_scout"]["new"])
+                
+            return web.json_response({"status": "success", "changes_count": len(changes), "changes": changes})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     async def handle_reload(self, request: web.Request) -> web.Response:
         """
         Hot-reload config.json values without restarting.
@@ -303,6 +333,9 @@ class LazyIVQueueServer:
         self._app.router.add_get("/queue", self.handle_queue_preview)
         self._app.router.add_get("/rarity", self.handle_rarity)
         self._app.router.add_get("/config", self.handle_config)
+        self._app.router.add_get("/config/raw", self.handle_config_raw_get)
+        self._app.router.add_post("/config/raw", self.handle_config_raw_post)
+
         self._app.router.add_post("/reload", self.handle_reload)
 
         self._runner = web.AppRunner(self._app)

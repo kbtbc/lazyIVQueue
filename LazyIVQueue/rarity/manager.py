@@ -5,7 +5,7 @@ import asyncio
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from LazyIVQueue.utils.logger import logger
-from LazyIVQueue.utils.pokemon_names import get_pokemon_name
+from LazyIVQueue.utils.pokemon import get_pokemon_name
 import LazyIVQueue.config as AppConfig
 
 
@@ -132,10 +132,44 @@ class RarityManager:
         # Log outside the lock
         if should_log:
             self.log_census_status()
+
+        logger.trace(f"Census: {pokemon_key} in {area} (despawn: {despawn_time})")
+
+    def get_rarity_percent(self, pokemon_id: int, form: Optional[int], area: str) -> Optional[float]:
+        """
+        Get the rarity percentage for a Pokemon in a specific area.
+        Returns:
+            float: Percentage (0.0 to 100.0) of this Pokemon relative to all active spawns globally.
+                   Lower is rarer.
+            None: If the Pokemon has never been seen.
+        """
+        keys_to_try = []
+        if form is not None:
+            keys_to_try.append(f"{pokemon_id}:{form}")
+        keys_to_try.append(str(pokemon_id))
         
-        base_id = int(pokemon_key.split(":")[0]) if ":" in pokemon_key else int(pokemon_key)
-        display_name = f"{get_pokemon_name(base_id)} {pokemon_key}"
-        logger.trace(f"Census: {display_name} in {area} (despawn: {despawn_time})")
+        # We need the count of this pokemon globally
+        count = 0
+        found = False
+        
+        for pokemon_key in keys_to_try:
+            if found:
+                break
+            for area_name, rankings in self._rankings.items():
+                for pk, c in rankings:
+                    if pk == pokemon_key:
+                        count += c
+                        found = True
+                        break
+                        
+        if not found:
+            return None
+            
+        total_active_global = sum(c for _, _, c in self._global_rankings)
+        if total_active_global == 0:
+            return 0.0
+            
+        return (count / total_active_global) * 100
 
     def get_rarity_rank(
         self, pokemon_id: int, form: Optional[int], area: str
@@ -396,7 +430,7 @@ class RarityManager:
                     {
                         "area_rank": idx + 1,  # 1-based ranking (0 = unknown)
                         "global_rank": self._global_rank_cache.get((pk, area_name)),
-                        "pokemon": f"{get_pokemon_name(int(pk.split(':')[0]) if ':' in pk else int(pk))} {pk}",
+                        "pokemon": pk,
                         "active_count": count,
                         "would_queue": self._global_rank_cache.get((pk, area_name), 0) <= AppConfig.iv_threshold,
                     }
@@ -426,21 +460,42 @@ class RarityManager:
         top_rarest = {}
         for area, rankings in self._rankings.items():
             top_rarest[area] = [
-                {"pokemon": f"{get_pokemon_name(int(pk.split(':')[0]) if ':' in pk else int(pk))} {pk}", "count": count}
+                {"pokemon": f"{get_pokemon_name(*map(int, pk.split(':')) if ':' in pk else (int(pk), None))} ({pk})", "count": count}
                 for pk, count in rankings[:10]
             ]
-
-        # Get top rarest globally (aggregated)
-        global_pokemon_counts = {}
-        for area, rankings in self._rankings.items():
-            for pk, count in rankings:
-                global_pokemon_counts[pk] = global_pokemon_counts.get(pk, 0) + count
-        
-        sorted_global = sorted(global_pokemon_counts.items(), key=lambda x: x[1])
+            
+        # Global top rarest
         top_rarest_global = [
-            {"rank": idx + 1, "pokemon": f"{get_pokemon_name(int(pk.split(':')[0]) if ':' in pk else int(pk))} {pk}", "count": count}
-            for idx, (pk, count) in enumerate(sorted_global[:20])
+            {"pokemon": f"{get_pokemon_name(*map(int, pk.split(':')) if ':' in pk else (int(pk), None))} ({pk})", "area": area, "count": count, "rank": idx + 1}
+            for idx, (pk, area, count) in enumerate(self._global_rankings[:50])
         ]
+        
+        poracle_rankings = {}
+        if AppConfig.auto_rarity_system == "poracle":
+            poracle_rankings = {
+                "Ultra Rare": [],
+                "Very Rare": [],
+                "Rare": [],
+                "Uncommon": [],
+                "Common": []
+            }
+            # Bin global rankings into poracle categories
+            total_active_global = sum(c for _, _, c in self._global_rankings)
+            
+            for idx, (pk, area, count) in enumerate(self._global_rankings):
+                if total_active_global == 0:
+                    break
+                pct = (count / total_active_global) * 100
+                pokemon_name = f"{get_pokemon_name(*map(int, pk.split(':')) if ':' in pk else (int(pk), None))} ({pk})"
+                entry = {"pokemon": pokemon_name, "area": area, "count": count, "rank": idx + 1}
+                if pct <= AppConfig.poracle_ultra_rare:
+                    poracle_rankings["Ultra Rare"].append(entry)
+                elif pct <= AppConfig.poracle_very_rare:
+                    poracle_rankings["Very Rare"].append(entry)
+                elif pct <= AppConfig.poracle_rare:
+                    poracle_rankings["Rare"].append(entry)
+                elif pct <= AppConfig.poracle_uncommon:
+                    poracle_rankings["Uncommon"].append(entry)
 
         return {
             "status": self._status,
@@ -454,10 +509,12 @@ class RarityManager:
                 "iv_threshold": AppConfig.iv_threshold,
                 "cell_threshold": AppConfig.cell_threshold,
                 "ranking_interval_seconds": AppConfig.ranking_interval_seconds,
+                "system": AppConfig.auto_rarity_system,
             },
             "by_area": area_stats,
             "top_rarest_by_area": top_rarest,
             "top_rarest_global": top_rarest_global,
+            "poracle_rankings": poracle_rankings,
         }
 
     async def stop(self) -> None:

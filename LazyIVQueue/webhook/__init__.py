@@ -1,4 +1,5 @@
 """Webhook package."""
-from LazyIVQueue.webhook.filter import process_pokemon_webhook
 
-__all__ = ["WebhookServer", "process_pokemon_webhook"]
+from LazyIVQueue.webhook.filter import process_webhook_message
+
+__all__ = ["process_webhook_message"]

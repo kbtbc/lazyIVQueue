@@ -82,21 +82,51 @@ headers = ["HeaderName: Value"]
 - `geofences.expire_cache_seconds` - How long to cache geofences before expiring (default: 1800)
 - `geofences.refresh_cache_seconds` - How often to refresh geofences from Koji (default: 1800)
 - `auto_rarity` - Dynamic rarity settings (when `AUTO_RARITY=TRUE`):
+  - `system` - Rarity ranking system to use: `"lazy"` (rank-based) or `"poracle"` (percentage-based, default: `"lazy"`)
   - `calibration_minutes` - Minutes to collect spawn data before rankings are used (default: 5)
   - `iv_threshold` - Queue Pokemon with rarity rank below this (default: 50, lower = rarer)
   - `cell_threshold` - Cell scout threshold (default: 20)
   - `ranking_interval_seconds` - How often to recalculate rankings (default: 120)
   - `cleanup_interval_seconds` - How often to remove despawned Pokemon from tracking (default: 60)
+  - `poracle` - Thresholds for the Poracle rarity system (used when `system="poracle"`). Represents top percentage of spawns:
+    - `ultra_rare_percent` - Top X% (default: 0.01 = top 0.01%)
+    - `very_rare_percent` - Top X% (default: 0.03)
+    - `rare_percent` - Top X% (default: 0.5)
+    - `uncommon_percent` - Top X% (default: 1.0)
 
 ## Auto Rarity
 
 When `AUTO_RARITY=TRUE`, LazyIVQueue dynamically tracks Pokemon spawn rarity and queues rare Pokemon automatically.
 
 ### How it works
+
 1. **Webhook**: Configure Golbat to send ALL Pokemon spawns to `/webhook`. The system automatically handles both rarity tracking and queue filtering from the single endpoint.
 2. **Rarity Tracking**: The system tracks active spawns per area (or globally if Koji disabled)
 3. **Calibration**: During the calibration period, only ivlist/celllist Pokemon are queued
 4. **Dynamic Queueing**: After calibration, Pokemon with rarity rank below the threshold are queued
+
+### Rarity Systems
+
+LazyIVQueue supports two ways to calculate rarity, controlled by `auto_rarity.system` in `config.json`:
+Controlled by `iv_threshold` and `cell_threshold`.
+
+1. **Lazy (Rank-Based)**: (Default) Rarity is area-based on absolute rank (e.g. iv_threshold=50 for top 50 rarest Pokemon each area). 
+2. **Poracle (Percentage-Based)**: Rarity is determined by the percentage of total active spawns globally. This mimics PoracleJS categories but numbered asc from rarest (1 = Unseen, 2 = Ultra Rare, 3 = Very Rare, 4 = Rare, 5 = Uncommon).  (e.g. iv_threshold=3 for Vary Rare)   Rarity level can be further fine-tuned below.
+
+**Example Poracle Configuration:**
+```json
+"auto_rarity": {
+    "enabled": true,
+    "system": "poracle",
+    "poracle": {
+        "ultra_rare_percent": 0.01,
+        "very_rare_percent": 0.03,
+        "rare_percent": 0.5,
+        "uncommon_percent": 1.0
+    }
+}
+```
+If `system` is set to `"poracle"`, Pokemon that fall under the `rare_percent` (or rarer) will be automatically queued, and the UI dashboard will show classifications using Poracle tier groupings.
 
 ### Priority System (lower = higher priority)
 
@@ -107,7 +137,7 @@ This ensures ivlist/celllist entries ALWAYS take priority over auto_rarity entri
 
 ### Golbat Configuration
 
-You need ONE webhook configurations in Golbat:
+You need TWO webhook configurations in Golbat:
 
 ```toml
 # Existing webhook for ivlist/celllist filtering
@@ -115,6 +145,7 @@ You need ONE webhook configurations in Golbat:
 url = "http://localhost:7070/webhook"
 types = ["pokemon"]
 headers = ["HeaderName: Value"]
+
 
 ```
 
@@ -131,10 +162,19 @@ cp example.docker-compose.yml docker-compose.yml
 docker-compose up -d --build
 ```
 
+## Dashboard
+
+LazyIVQueue includes an interactive web dashboard accessible at the root path (`http://localhost:7070/`).
+
+**Features:**
+- **Real-Time Stats**: View queue status, session match rates, scout success vs timeouts, and active spawn counts.
+- **Rarity Rankings**: See the top rarest Pokemon currently tracked in your area or globally (uses Poracle categories if `system="poracle"` is configured).
+- **In-App Config Editor**: Click the "Edit Config" button in the dashboard to view and hot-reload `config.json` directly from the browser without restarting the service or manually calling the reload endpoint.
+
 ## Endpoints
 
+- `GET /` - Interactive Dashboard with real-time stats and in-app config editor
 - `POST /webhook` - Receives Pokemon webhooks from Golbat (ivlist/celllist filtering)
-- `POST /webhook/census` - Receives ALL Pokemon spawns for rarity tracking
 - `GET /health` - Health check
 - `GET /stats` - Queue, scout, and rarity statistics — includes IV/hour rates (nearby_cell, normal, combined)
 - `GET /queue` - Queue preview (next N entries, use `?count=N`)

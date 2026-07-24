@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional
 
 from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
-from LazyIVQueue.utils.pokemon_names import get_pokemon_name
 import LazyIVQueue.config as AppConfig
 
 
@@ -62,10 +61,11 @@ class QueueEntry:
     @property
     def pokemon_display(self) -> str:
         """Human-readable pokemon identifier."""
-        name_str = f"{get_pokemon_name(self.pokemon_id)} "
+        from LazyIVQueue.utils.pokemon import get_pokemon_name
+        name = get_pokemon_name(self.pokemon_id, self.form)
         if self.form is not None:
-            return f"{name_str}{self.pokemon_id}:{self.form}"
-        return f"{name_str}{self.pokemon_id}"
+            return f"{name} ({self.pokemon_id}:{self.form})"
+        return f"{name} ({self.pokemon_id})"
 
 
 class IVQueueManager:
