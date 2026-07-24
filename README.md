@@ -21,50 +21,39 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # Copy config files
-cp .env.example .env
 cp LazyIVQueue/config/example.config.json LazyIVQueue/config/config.json
 ```
 
 ## Configuration
 
-### .env
-
-**Logging**
-- `LOG_LEVEL` - Log level (default: `INFO`)
-- `LOG_FILE` - Log to file (default: `FALSE`)
-
-**Server**
-- `LAZYIVQUEUE_HOST` / `LAZYIVQUEUE_PORT` - Server bind address (default: `0.0.0.0:7070`)
-
-**Dragonite Scout API**
-- `DRAGONITE_API_BASE_URL` - Dragonite Scout API endpoint (e.g., `http://127.0.0.1:7272`)
-- `DRAGONITE_API_USERNAME` / `DRAGONITE_API_PASSWORD` - Basic auth credentials (optional)
-- `DRAGONITE_API_KEY` - API key auth (optional)
-- `DRAGONITE_BEARER_KEY` - Bearer token auth (optional)
-
-**Auto Rarity**
-- `AUTO_RARITY` - Enable dynamic rarity-based queueing (default: `FALSE`). See Auto Rarity section below
-
-**Koji Geofences**
-- `FILTER_WITH_KOJI` - Enable geofence filtering (default: `TRUE`). Set to `FALSE` to skip geofence checks
-- `KOJI_URL` - Full Koji base URL (e.g., `http://koji.example.com:8080`). Alternative to KOJI_IP/KOJI_PORT
-- `KOJI_IP` / `KOJI_PORT` - Koji host and port (default: `127.0.0.1:8080`)
-- `KOJI_TOKEN` - Koji bearer token for authentication
-- `KOJI_PROJECT_NAME` - Koji project name containing the geofences to use
-
-**Security**
-- `ALLOWED_IPS` - Comma-separated IPs allowed to POST webhooks (e.g., `127.0.0.1,192.168.1.100`)
-- `HEADERS` - Header auth (format: `HeaderName: Value`). Example Golbat config:
-```toml
-[[webhooks]]
-url = "http://localhost:7070/webhook"
-types = ["pokemon"]
-headers = ["HeaderName: Value"]
-```
-
-> Use `types = ["pokemon"]` (not `"pokemon_no_iv"`) so Golbat also sends IV-bearing encounters — required for early IV detection and avoids wasting scout slots on Pokemon already have IV data.
+All configuration is done via `config.json`.
 
 ### config.json
+
+**Server & Logging**
+- `server.host` / `server.port` - Server bind address (default: `0.0.0.0:7070`)
+- `server.max_body_size` - Max webhook payload size (default: 10485760)
+- `logging.level` - Log level (default: `INFO`)
+- `logging.file` - Log to file (default: `false`)
+
+**Dragonite Scout API**
+- `dragonite.api_base_url` - Dragonite Scout API endpoint (e.g., `http://127.0.0.1:7272`)
+- `dragonite.api_username` / `dragonite.api_password` - Basic auth credentials (optional)
+- `dragonite.api_key` - API key auth (optional)
+- `dragonite.bearer_key` - Bearer token auth (optional)
+
+**Koji Geofences**
+- `koji.filter_with_koji` - Enable geofence filtering (default: `true`). Set to `false` to skip geofence checks
+- `koji.url` - Full Koji base URL (e.g., `http://koji.example.com:8080`). Alternative to IP/Port
+- `koji.ip` / `koji.port` - Koji host and port (default: `127.0.0.1:8080`)
+- `koji.token` - Koji bearer token for authentication
+- `koji.project_name` - Koji project name containing the geofences to use
+
+**Security**
+- `security.allowed_ips` - List of IPs allowed to POST webhooks (e.g., `["127.0.0.1", "192.168.1.100"]`)
+- `security.headers` - Header auth (format: `HeaderName: Value`)
+
+**Priority Lists**
 - `ivlist` - Priority list of Pokemon to scout for `wild`/`nearby_stop` seen_types (first = highest priority)
   - `"pokemon_id"` - Match any form (e.g., `"1"` matches Bulbasaur any form)
   - `"pokemon_id:form"` - Match specific form only (e.g., `"3:0"` matches Venusaur form 0)
@@ -74,29 +63,34 @@ headers = ["HeaderName: Value"]
   - Uses 9x9 pattern (9 coordinates) to cover S2 level-15 cell
 - `denylist` - Block list of Pokemon to never scout (same format as ivlist/celllist)
   - Applies to all seen_types — denylisted Pokemon are silently dropped before queueing
-  - When `AUTO_RARITY=TRUE`, the denylist persists across reloads and prevents rare-but-unwanted Pokemon from being queued
-  - Empty list disables the feature
+  - When auto rarity is enabled, the denylist prevents rare-but-unwanted Pokemon from being queued
+
+**Scout Settings**
 - `scout.concurrency` - Max concurrent scout requests - Should match the number of scouts you have set in Dragonite
-- `scout.timeout_iv` - Seconds to wait for IV data before removing from queue - Liberating the scout to work (default: 180)
-- `scout.wild_scout_delay` - Seconds to hold `wild`/`nearby_stop` entries before scouting (default: `0`, disabled). Set to `15` if your scanner sends encounters immediately — IVs that arrive naturally during the hold are recorded as `wild_early` and no scout is wasted
+- `scout.timeout_iv` - Seconds to wait for IV data before removing from queue (default: 120)
+- `scout.wild_scout_delay` - Seconds to hold `wild`/`nearby_stop` entries before scouting (default: `0`). Set to `15` if your scanner sends encounters immediately to prevent wasting a scout on natural IV spawns
+
+**Geofence Cache**
 - `geofences.expire_cache_seconds` - How long to cache geofences before expiring (default: 1800)
 - `geofences.refresh_cache_seconds` - How often to refresh geofences from Koji (default: 1800)
-- `auto_rarity` - Dynamic rarity settings (when `AUTO_RARITY=TRUE`):
-  - `system` - Rarity ranking system to use: `"lazy"` (rank-based) or `"poracle"` (percentage-based, default: `"lazy"`)
-  - `calibration_minutes` - Minutes to collect spawn data before rankings are used (default: 5)
-  - `iv_threshold` - Queue Pokemon with rarity rank below this (default: 50, lower = rarer)
-  - `cell_threshold` - Cell scout threshold (default: 20)
-  - `ranking_interval_seconds` - How often to recalculate rankings (default: 120)
-  - `cleanup_interval_seconds` - How often to remove despawned Pokemon from tracking (default: 60)
-  - `poracle` - Thresholds for the Poracle rarity system (used when `system="poracle"`). Represents top percentage of spawns:
-    - `ultra_rare_percent` - Top X% (default: 0.01 = top 0.01%)
-    - `very_rare_percent` - Top X% (default: 0.03)
-    - `rare_percent` - Top X% (default: 0.5)
-    - `uncommon_percent` - Top X% (default: 1.0)
+
+**Auto Rarity**
+- `auto_rarity.enabled` - Enable dynamic rarity-based queueing (default: `false`)
+- `auto_rarity.system` - Rarity ranking system to use: `"lazy"` (rank-based) or `"poracle"` (percentage-based, default: `"lazy"`)
+- `auto_rarity.calibration_minutes` - Minutes to collect spawn data before rankings are used (default: 5)
+- `auto_rarity.iv_threshold` - Queue Pokemon with rarity rank below this (default: 50, lower = rarer)
+- `auto_rarity.cell_threshold` - Cell scout threshold (default: 10)
+- `auto_rarity.ranking_interval_seconds` - How often to recalculate rankings (default: 120)
+- `auto_rarity.cleanup_interval_seconds` - How often to remove despawned Pokemon from tracking (default: 60)
+- `auto_rarity.poracle` - Thresholds for the Poracle rarity system (used when `system="poracle"`). Represents top percentage of spawns:
+  - `ultra_rare_percent` - Top X% (default: 0.01 = top 0.01%)
+  - `very_rare_percent` - Top X% (default: 0.03)
+  - `rare_percent` - Top X% (default: 0.5)
+  - `uncommon_percent` - Top X% (default: 1.0)
 
 ## Auto Rarity
 
-When `AUTO_RARITY=TRUE`, LazyIVQueue dynamically tracks Pokemon spawn rarity and queues rare Pokemon automatically.
+When `auto_rarity.enabled=true`, LazyIVQueue dynamically tracks Pokemon spawn rarity and queues rare Pokemon automatically.
 
 ### How it works
 
@@ -108,9 +102,8 @@ When `AUTO_RARITY=TRUE`, LazyIVQueue dynamically tracks Pokemon spawn rarity and
 ### Rarity Systems
 
 LazyIVQueue supports two ways to calculate rarity, controlled by `auto_rarity.system` in `config.json`:
-Controlled by `iv_threshold` and `cell_threshold`.
 
-1. **Lazy (Rank-Based)**: (Default) Rarity is area-based on absolute rank (e.g. iv_threshold=50 for top 50 rarest Pokemon each area). 
+1. **Lazy (Rank-Based)**: (Default) Rarity is area-based on absolute rank (e.g. iv_threshold=50 for top 50 rarest Pokemon each area).
 2. **Poracle (Percentage-Based)**: Rarity is determined by the percentage of total active spawns globally. This mimics PoracleJS categories but numbered asc from rarest (1 = Unseen, 2 = Ultra Rare, 3 = Very Rare, 4 = Rare, 5 = Uncommon).  (e.g. iv_threshold=3 for Vary Rare)   Rarity level can be further fine-tuned below.
 
 **Example Poracle Configuration:**
@@ -126,6 +119,7 @@ Controlled by `iv_threshold` and `cell_threshold`.
     }
 }
 ```
+
 If `system` is set to `"poracle"`, Pokemon that fall under the `rare_percent` (or rarer) will be automatically queued, and the UI dashboard will show classifications using Poracle tier groupings.
 
 ### Priority System (lower = higher priority)
@@ -137,26 +131,27 @@ This ensures ivlist/celllist entries ALWAYS take priority over auto_rarity entri
 
 ### Golbat Configuration
 
-You need TWO webhook configurations in Golbat:
+You need a webhook configuration in Golbat:
 
 ```toml
-# Existing webhook for ivlist/celllist filtering
 [[webhooks]]
 url = "http://localhost:7070/webhook"
 types = ["pokemon"]
 headers = ["HeaderName: Value"]
-
-
 ```
+
+> Use `types = ["pokemon"]` (not `"pokemon_no_iv"`) so Golbat also sends IV-bearing encounters — required for early IV detection and avoids wasting scout slots on Pokemon already have IV data.
 
 ## Run
 
 ### Local
+
 ```bash
 python -m LazyIVQueue.lazyivqueue
 ```
 
 ### Docker
+
 ```bash
 cp example.docker-compose.yml docker-compose.yml
 docker-compose up -d --build
@@ -220,11 +215,11 @@ The `/reload` endpoint allows you to update config.json values without restartin
 - `geofences` cache settings
 
 **Requires restart:**
-- Server host/port (`.env`)
-- Dragonite API settings (`.env`)
-- Koji credentials (`.env`)
-- `AUTO_RARITY`, `FILTER_WITH_KOJI` (`.env`)
-- `LOG_LEVEL`, `LOG_FILE` (`.env`)
+- `server` settings (host/port)
+- `dragonite` API settings
+- `koji` credentials and URL
+- `auto_rarity.enabled`, `koji.filter_with_koji`
+- `logging` settings
 
 ## Log Prefixes
 
@@ -235,6 +230,6 @@ The `/reload` endpoint allows you to update config.json values without restartin
 - `[x]` - Scout timeout (no IV received within timeout_iv seconds)
 - `[!]` - Scout request failed
 
-### Census/Rarity (when AUTO_RARITY=TRUE)
+### Census/Rarity (when auto_rarity.enabled=true)
 - `[*]` - Census status during calibration / New area discovered
 - `[~]` - Census status after calibration / Census cleanup
