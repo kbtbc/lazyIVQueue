@@ -345,9 +345,8 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
     area = pokemon.area or "GLOBAL"
 
     # All checks passed - add to queue
-    # Simplify list_type for storage (remove rank info from auto_rarity)
-    stored_list_type = "auto_rarity" if list_type.startswith("auto_rarity") else list_type
-
+    # Store the full list_type (including rarity tier/rank detail) so the
+    # dashboard queue preview can show which tier an entry was queued under
     queue = await IVQueueManager.get_instance()
     default_disappear_time = int(time_module.time()) + 600
     entry = QueueEntry(
@@ -362,7 +361,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
         disappear_time=pokemon.disappear_time or default_disappear_time,
         seen_type=seen_type,
         s2_cell_id=s2_cell_id,
-        list_type=stored_list_type,
+        list_type=list_type,
         eligible_at=time_module.time() + AppConfig.wild_scout_delay if seen_type != "nearby_cell" and AppConfig.wild_scout_delay > 0 else 0.0,
     )
 

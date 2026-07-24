@@ -40,7 +40,9 @@ class QueueEntry:
     s2_cell_id: Optional[str] = field(compare=False, default=None)  # S2 level-15 cell ID (for nearby_cell)
 
     # Source list for tracking
-    list_type: str = field(compare=False, default="unknown")  # "ivlist", "celllist", or "auto_rarity"
+    # "ivlist", "celllist", or a detailed auto_rarity string such as
+    # "auto_rarity(rank=5)" / "auto_rarity(poracle-rare, pct=0.31)" / "auto_rarity(unknown)"
+    list_type: str = field(compare=False, default="unknown")
 
     # Tracking fields
     is_removed: bool = field(compare=False, default=False)
@@ -98,6 +100,10 @@ class IVQueueManager:
         self._early_iv_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
         self._wild_early_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
         self._timeouts_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
+
+        # Per-Pokemon queued counts by list group:
+        # "vip" = ivlist/celllist entries, "rarity" = auto_rarity entries
+        self._queued_by_group: Dict[str, Dict[str, int]] = {"vip": {}, "rarity": {}}
 
         # Per-Pokemon breakdown by seen_type (key: seen_type -> pokemon_display -> count)
         self._queued_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
@@ -176,6 +182,12 @@ class IVQueueManager:
                 self._queued_by_pokemon[seen_type][entry.pokemon_display] = (
                     self._queued_by_pokemon[seen_type].get(entry.pokemon_display, 0) + 1
                 )
+
+            # Update per-Pokemon queued counts by list group (vip vs rarity)
+            group = "rarity" if (entry.list_type or "").startswith("auto_rarity") else "vip"
+            self._queued_by_group[group][entry.pokemon_display] = (
+                self._queued_by_group[group].get(entry.pokemon_display, 0) + 1
+            )
 
             logger.debug(
                 f"Added to queue: {entry.pokemon_display} in {entry.area} "
@@ -498,6 +510,10 @@ class IVQueueManager:
                 "total_early_iv": self._build_type_stats(self._early_iv_by_type),
                 "total_wild_early": self._build_type_stats(self._wild_early_by_type),
                 "total_timeouts": self._build_type_stats(self._timeouts_by_type),
+                "by_pokemon_group": {
+                    "vip": self._queued_by_group.get("vip", {}),
+                    "rarity": self._queued_by_group.get("rarity", {}),
+                },
                 "by_pokemon": {
                     "wild": {
                         "queued": self._queued_by_pokemon.get("wild", {}),

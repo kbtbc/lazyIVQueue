@@ -164,22 +164,47 @@
             </div>
         </div>
 
-        <!-- Pokemon Activity Top 10 Aggregate Chart -->
+        <!-- Pokemon Activity split charts -->
         <div class="card mb-8">
             <h3 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
                 <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
-                Total Pokemon Activity (Top 10)
+                Pokemon Activity (Top 20)
+                <span class="text-sm font-medium text-gray-400">queued this session</span>
             </h3>
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div class="lg:col-span-2 relative h-80">
-                    <canvas id="topPokemonChart"></canvas>
+                <!-- Priority list activity -->
+                <div class="flex flex-col rounded-xl border border-gray-100 bg-gray-50/70 p-4">
+                    <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
+                        <h4 class="font-semibold text-gray-800 flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                            Priority Lists
+                        </h4>
+                        <span class="pill bg-blue-100 text-blue-700 border border-blue-200" id="vip-activity-total">0 queued</span>
+                    </div>
+                    <div class="relative h-[480px]">
+                        <canvas id="vipActivityChart"></canvas>
+                    </div>
                 </div>
+                <!-- Auto rarity activity -->
+                <div class="flex flex-col rounded-xl border border-gray-100 bg-gray-50/70 p-4">
+                    <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
+                        <h4 class="font-semibold text-gray-800 flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-orange-500"></span>
+                            Auto Rarity
+                        </h4>
+                        <span class="pill bg-orange-100 text-orange-700 border border-orange-200" id="rarity-activity-total">0 queued</span>
+                    </div>
+                    <div class="relative h-[480px]">
+                        <canvas id="rarityActivityChart"></canvas>
+                    </div>
+                </div>
+                <!-- Aggregate rankings list -->
                 <div class="flex flex-col rounded-xl border border-gray-100 bg-gray-50/70 p-4">
                     <h4 class="font-semibold text-gray-800 mb-3 border-b border-gray-200 pb-2 flex items-center gap-2">
                         <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
                         Aggregate Rankings
                     </h4>
-                    <div id="list-aggregate" class="flex flex-col gap-0.5 overflow-y-auto nice-scroll max-h-72">
+                    <div id="list-aggregate" class="flex flex-col gap-0.5 overflow-y-auto nice-scroll max-h-[480px]">
                         <p class="text-sm text-gray-500 py-2 italic">Waiting for data...</p>
                     </div>
                     <div id="list-aggregate-btnwrap" class="pt-2"></div>
@@ -211,12 +236,9 @@
     <script>
         let sessionChart = null;
         let sourceChart = null;
-        let topPokemonChart = null;
-        
-        let topPokemonHistory = {};
-        let topPokemonTimeLabels = [];
-        const MAX_HISTORY_POINTS = 20;
-        const chartColors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
+        let vipActivityChart = null;
+        let rarityActivityChart = null;
+        const ACTIVITY_TOP_N = 20;
         
         const expandedStates = {
             'list-aggregate': false,
@@ -306,26 +328,78 @@
                 }
             });
 
-            const ctxTop = document.getElementById('topPokemonChart').getContext('2d');
-            topPokemonChart = new Chart(ctxTop, {
-                type: 'line',
+            vipActivityChart = makeActivityChart('vipActivityChart');
+            rarityActivityChart = makeActivityChart('rarityActivityChart');
+        }
+
+        // Horizontal bar chart for per-Pokemon queued activity
+        function makeActivityChart(canvasId) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            return new Chart(ctx, {
+                type: 'bar',
                 data: {
                     labels: [],
-                    datasets: []
+                    datasets: [{
+                        data: [],
+                        backgroundColor: [],
+                        borderRadius: 6,
+                        borderSkipped: false,
+                        barPercentage: 0.8,
+                        categoryPercentage: 0.85
+                    }]
                 },
                 options: {
+                    indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
-                    animation: { duration: 500 },
+                    animation: { duration: 400 },
                     plugins: {
-                        legend: { position: 'right' }
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => ` ${ctx.parsed.x} queued`
+                            }
+                        }
                     },
                     scales: {
-                        x: { display: true },
-                        y: { display: true, beginAtZero: true }
+                        x: {
+                            beginAtZero: true,
+                            ticks: { precision: 0, font: { size: 10 } },
+                            grid: { color: 'rgba(0,0,0,0.05)' }
+                        },
+                        y: {
+                            grid: { display: false },
+                            ticks: {
+                                autoSkip: false,
+                                font: { size: 11 },
+                                callback: function(value) {
+                                    const label = this.getLabelForValue(value);
+                                    return label.length > 20 ? label.slice(0, 19) + '…' : label;
+                                }
+                            }
+                        }
                     }
                 }
             });
+        }
+
+        // rgb = "59,130,246" style string; bars fade slightly as rank drops
+        function updateActivityChart(chart, counts, rgb, totalElemId) {
+            const items = Object.entries(counts || {})
+                .map(([pokemon, count]) => ({ pokemon, count }))
+                .sort((a, b) => b.count - a.count);
+
+            const totalQueued = items.reduce((sum, d) => sum + d.count, 0);
+            const totalElem = document.getElementById(totalElemId);
+            if (totalElem) totalElem.textContent = totalQueued + ' queued';
+
+            const top = items.slice(0, ACTIVITY_TOP_N);
+            chart.data.labels = top.map(d => d.pokemon);
+            chart.data.datasets[0].data = top.map(d => d.count);
+            chart.data.datasets[0].backgroundColor = top.map((d, i) =>
+                `rgba(${rgb},${Math.max(0.35, 1 - i * 0.03).toFixed(2)})`
+            );
+            chart.update();
         }
 
         function updateCharts(stats) {
@@ -442,53 +516,6 @@
             el.scrollTop = prevScroll;
         }
 
-        function updateTopPokemonChart(aggregatedData) {
-            const top10 = aggregatedData.slice(0, 10);
-            const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            
-            topPokemonTimeLabels.push(now);
-            if (topPokemonTimeLabels.length > MAX_HISTORY_POINTS) {
-                topPokemonTimeLabels.shift();
-            }
-
-            // Record data for current top 10
-            top10.forEach(item => {
-                if (!topPokemonHistory[item.pokemon]) {
-                    // Fill previous history with 0s if they just appeared
-                    topPokemonHistory[item.pokemon] = new Array(topPokemonTimeLabels.length - 1).fill(0);
-                }
-                topPokemonHistory[item.pokemon].push(item.count);
-            });
-
-            // Update any historical entries that fell out of the top 10
-            Object.keys(topPokemonHistory).forEach(pokemonName => {
-                if (!top10.find(d => d.pokemon === pokemonName)) {
-                    const found = aggregatedData.find(d => d.pokemon === pokemonName);
-                    topPokemonHistory[pokemonName].push(found ? found.count : 0);
-                }
-                if (topPokemonHistory[pokemonName].length > MAX_HISTORY_POINTS) {
-                    topPokemonHistory[pokemonName].shift();
-                }
-            });
-
-            const datasets = top10.map((item, i) => {
-                return {
-                    label: item.pokemon,
-                    data: topPokemonHistory[item.pokemon],
-                    borderColor: chartColors[i % chartColors.length],
-                    backgroundColor: chartColors[i % chartColors.length],
-                    tension: 0.3,
-                    fill: false
-                };
-            });
-
-            if (topPokemonChart) {
-                topPokemonChart.data.labels = topPokemonTimeLabels;
-                topPokemonChart.data.datasets = datasets;
-                topPokemonChart.update();
-            }
-        }
-
         // Maps an entry's list_type to a display group + badge.
         // list_type values come from the backend: "ivlist", "celllist",
         // "auto_rarity(rank=N)", "auto_rarity(poracle-ultra-rare, pct=0.0123)", "auto_rarity(unknown)"
@@ -506,7 +533,7 @@
                 if (detail.startsWith('poracle-uncommon')) return { group: 'rarity', label: 'Uncommon' + pct, cls: 'bg-yellow-100 text-yellow-700 border border-yellow-200' };
                 const rankMatch = detail.match(/rank=(\d+)/);
                 if (rankMatch) return { group: 'rarity', label: 'Rank ' + rankMatch[1], cls: 'bg-indigo-100 text-indigo-700 border border-indigo-200' };
-                return { group: 'rarity', label: 'Unranked', cls: 'bg-gray-100 text-gray-600 border border-gray-200' };
+                return { group: 'rarity', label: 'New/Unknown', cls: 'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200' };
             }
             return { group: 'vip', label: '?', cls: 'bg-gray-100 text-gray-500 border border-gray-200' };
         }
@@ -725,13 +752,17 @@
                 // Charts
                 updateCharts(data);
 
-                // Pokemon Lists
-                if (data.queue && data.queue.session && data.queue.session.by_pokemon) {
-                    const by_pokemon = data.queue.session.by_pokemon;
-                    const aggregateData = aggregateTotalPokemonStats(by_pokemon);
-                    
-                    renderPokemonList('list-aggregate', aggregateData);
-                    updateTopPokemonChart(aggregateData);
+                // Pokemon Lists + Activity Charts
+                if (data.queue && data.queue.session) {
+                    const session = data.queue.session;
+
+                    if (session.by_pokemon) {
+                        renderPokemonList('list-aggregate', aggregateTotalPokemonStats(session.by_pokemon));
+                    }
+
+                    const byGroup = session.by_pokemon_group || {};
+                    updateActivityChart(vipActivityChart, byGroup.vip, '59,130,246', 'vip-activity-total');
+                    updateActivityChart(rarityActivityChart, byGroup.rarity, '249,115,22', 'rarity-activity-total');
                 }
 
             } catch (error) {
