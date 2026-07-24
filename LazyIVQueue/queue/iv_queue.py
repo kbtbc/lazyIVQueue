@@ -550,6 +550,8 @@ class IVQueueManager:
                 "pokemon": entry.pokemon_display,
                 "area": entry.area,
                 "priority": entry.priority,
+                "list_type": entry.list_type,
+                "seen_type": entry.seen_type,
                 "lat": round(entry.lat, 6),
                 "lon": round(entry.lon, 6),
                 "encounter_id": entry.encounter_id,

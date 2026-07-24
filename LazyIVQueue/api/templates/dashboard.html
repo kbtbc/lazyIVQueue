@@ -6,20 +6,28 @@
     <title>LazyIVQueue Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        .card { @apply bg-white p-6 rounded-xl shadow-sm border border-gray-100; }
+    <style type="text/tailwindcss">
+        .card { @apply bg-white p-6 rounded-2xl shadow-sm border border-gray-100; }
         .metric-value { @apply text-3xl font-bold text-gray-900 mt-2; }
         .metric-label { @apply text-sm font-medium text-gray-500 uppercase tracking-wider; }
         .badge { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium; }
+        .pill { @apply inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap; }
+        .nice-scroll { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+        .nice-scroll::-webkit-scrollbar { width: 6px; }
+        .nice-scroll::-webkit-scrollbar-track { background: transparent; }
+        .nice-scroll::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded-full; }
+        .nice-scroll::-webkit-scrollbar-thumb:hover { @apply bg-slate-400; }
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen font-sans text-gray-900 pb-12">
-    <nav class="bg-white border-b border-gray-200 sticky top-0 z-10">
+<body class="bg-gradient-to-br from-gray-50 via-slate-50 to-blue-50/40 min-h-screen font-sans text-gray-900 pb-12">
+    <nav class="bg-white/90 backdrop-blur border-b border-gray-200 sticky top-0 z-10">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16 items-center">
                 <div class="flex items-center">
-                    <h1 class="text-xl font-bold text-gray-900 flex items-center gap-2">
-                        <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    <h1 class="text-xl font-bold text-gray-900 flex items-center gap-2.5">
+                        <span class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-sm">
+                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        </span>
                         LazyIVQueue
                     </h1>
                 </div>
@@ -114,10 +122,45 @@
         <div class="card mb-8">
             <h3 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
                 <svg class="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                Queue Preview (<span id="queue-preview-count">0</span>)
+                Queue Preview
+                <span class="text-sm font-medium text-gray-400">(<span id="queue-preview-count">0</span> queued)</span>
             </h3>
-            <div id="queue-preview-list" class="flex flex-col gap-1 overflow-auto max-h-80">
-                <p class="text-sm text-gray-500 py-2 italic">Loading...</p>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Priority list entries (ivlist + celllist) -->
+                <div class="flex flex-col rounded-xl border border-gray-100 bg-gray-50/70 p-4">
+                    <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-2">
+                        <h4 class="font-semibold text-gray-800 flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                            Priority Lists
+                        </h4>
+                        <div class="flex items-center gap-2">
+                            <span class="pill bg-blue-100 text-blue-700 border border-blue-200">IV</span>
+                            <span class="pill bg-emerald-100 text-emerald-700 border border-emerald-200">Cell</span>
+                            <span class="text-xs text-gray-400 font-medium ml-1" id="queue-vip-count">0</span>
+                        </div>
+                    </div>
+                    <div id="queue-vip-list" class="flex flex-col gap-0.5 overflow-y-auto nice-scroll max-h-80">
+                        <p class="text-sm text-gray-500 py-1 italic">Loading...</p>
+                    </div>
+                    <div id="queue-vip-list-btnwrap" class="pt-2"></div>
+                </div>
+                <!-- Auto rarity entries -->
+                <div class="flex flex-col rounded-xl border border-gray-100 bg-gray-50/70 p-4">
+                    <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-2">
+                        <h4 class="font-semibold text-gray-800 flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-orange-500"></span>
+                            Auto Rarity
+                        </h4>
+                        <div class="flex items-center gap-2">
+                            <span class="pill bg-purple-100 text-purple-700 border border-purple-200">Rarity tier</span>
+                            <span class="text-xs text-gray-400 font-medium ml-1" id="queue-rarity-count">0</span>
+                        </div>
+                    </div>
+                    <div id="queue-rarity-list" class="flex flex-col gap-0.5 overflow-y-auto nice-scroll max-h-80">
+                        <p class="text-sm text-gray-500 py-1 italic">Loading...</p>
+                    </div>
+                    <div id="queue-rarity-list-btnwrap" class="pt-2"></div>
+                </div>
             </div>
         </div>
 
@@ -131,11 +174,15 @@
                 <div class="lg:col-span-2 relative h-80">
                     <canvas id="topPokemonChart"></canvas>
                 </div>
-                <div class="flex flex-col">
-                    <h4 class="font-medium text-gray-700 mb-3 border-b border-gray-100 pb-2">Aggregate Rankings</h4>
-                    <div id="list-aggregate" class="flex flex-col gap-1 overflow-auto max-h-72">
+                <div class="flex flex-col rounded-xl border border-gray-100 bg-gray-50/70 p-4">
+                    <h4 class="font-semibold text-gray-800 mb-3 border-b border-gray-200 pb-2 flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+                        Aggregate Rankings
+                    </h4>
+                    <div id="list-aggregate" class="flex flex-col gap-0.5 overflow-y-auto nice-scroll max-h-72">
                         <p class="text-sm text-gray-500 py-2 italic">Waiting for data...</p>
                     </div>
+                    <div id="list-aggregate-btnwrap" class="pt-2"></div>
                 </div>
             </div>
         </div>
@@ -173,24 +220,39 @@
         
         const expandedStates = {
             'list-aggregate': false,
-            'queue-preview-list': false
+            'queue-vip-list': false,
+            'queue-rarity-list': false
         };
 
-        function toggleExpand(elementId) {
+        function toggleExpand(elementId, totalCount) {
             expandedStates[elementId] = !expandedStates[elementId];
+            const expanded = expandedStates[elementId];
             const el = document.getElementById(elementId);
-            const items = el.querySelectorAll('.list-item-hidden');
-            items.forEach(item => {
-                if (expandedStates[elementId]) {
-                    item.classList.remove('hidden');
-                } else {
-                    item.classList.add('hidden');
-                }
-            });
+            el.querySelectorAll('.list-item-hidden').forEach(item => item.classList.toggle('hidden', !expanded));
             const btn = document.getElementById(elementId + '-btn');
             if (btn) {
-                btn.textContent = expandedStates[elementId] ? 'Show less' : 'Show all';
+                btn.innerHTML = expanded
+                    ? 'Show less &uarr;'
+                    : `Show all${totalCount ? ' (' + totalCount + ')' : ''} &darr;`;
             }
+            if (!expanded) el.scrollTop = 0;
+        }
+
+        // Renders a "Show all (N) / Show less" toggle into the list's -btnwrap slot.
+        // Expanded lists stay capped at their max-height and scroll instead of growing the page.
+        function renderExpandButton(elementId, totalCount, visibleLimit) {
+            const btnWrap = document.getElementById(elementId + '-btnwrap');
+            if (!btnWrap) return;
+            btnWrap.innerHTML = '';
+            if (totalCount <= visibleLimit) return;
+            const btn = document.createElement('button');
+            btn.id = elementId + '-btn';
+            btn.className = 'text-xs text-blue-600 hover:text-blue-800 font-medium';
+            btn.innerHTML = expandedStates[elementId]
+                ? 'Show less &uarr;'
+                : `Show all (${totalCount}) &darr;`;
+            btn.onclick = () => toggleExpand(elementId, totalCount);
+            btnWrap.appendChild(btn);
         }
 
         function initCharts() {
@@ -337,40 +399,47 @@
                 .sort((a, b) => b.count - a.count);
         }
 
+        function rankBadgeClass(index) {
+            if (index === 0) return 'bg-amber-400 text-white';
+            if (index === 1) return 'bg-slate-300 text-slate-700';
+            if (index === 2) return 'bg-amber-700/60 text-white';
+            return 'bg-gray-100 text-gray-500';
+        }
+
         function renderPokemonList(elementId, dataList) {
             const el = document.getElementById(elementId);
+            const prevScroll = el.scrollTop;
             el.innerHTML = '';
             if (dataList.length === 0) {
+                renderExpandButton(elementId, 0, 10);
                 el.innerHTML = '<p class="text-sm text-gray-500 py-1 text-center italic w-full">No data yet</p>';
                 return;
             }
-            
+
             const isExpanded = expandedStates[elementId];
-            
+            const maxCount = dataList[0].count || 1;
+
             dataList.forEach((item, index) => {
                 const div = document.createElement('div');
-                div.className = 'flex justify-between items-center text-sm py-0.5';
+                div.className = 'relative flex justify-between items-center text-sm py-1 px-2 rounded-lg overflow-hidden shrink-0';
                 if (index >= 10) {
                     div.classList.add('list-item-hidden');
-                    if (!isExpanded) {
-                        div.classList.add('hidden');
-                    }
+                    if (!isExpanded) div.classList.add('hidden');
                 }
+                const pct = Math.max(4, Math.round((item.count / maxCount) * 100));
                 div.innerHTML = `
-                    <span class="font-medium text-gray-700">${item.pokemon}</span>
-                    <span class="text-gray-500 text-xs">${item.count}</span>
+                    <div class="absolute inset-y-0 left-0 bg-indigo-100/70 rounded-lg" style="width:${pct}%"></div>
+                    <div class="relative flex items-center gap-2 min-w-0">
+                        <span class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold shrink-0 ${rankBadgeClass(index)}">${index + 1}</span>
+                        <span class="font-medium text-gray-800 truncate">${item.pokemon}</span>
+                    </div>
+                    <span class="relative pill bg-white/80 text-indigo-700 border border-indigo-100 ml-2">${item.count}</span>
                 `;
                 el.appendChild(div);
             });
-            
-            if (dataList.length > 10) {
-                const btn = document.createElement('button');
-                btn.id = elementId + '-btn';
-                btn.className = 'text-xs text-blue-600 hover:text-blue-800 mt-2 text-left font-medium';
-                btn.textContent = isExpanded ? 'Show less' : 'Show all';
-                btn.onclick = () => toggleExpand(elementId);
-                el.appendChild(btn);
-            }
+
+            renderExpandButton(elementId, dataList.length, 10);
+            el.scrollTop = prevScroll;
         }
 
         function updateTopPokemonChart(aggregatedData) {
@@ -420,56 +489,83 @@
             }
         }
 
+        // Maps an entry's list_type to a display group + badge.
+        // list_type values come from the backend: "ivlist", "celllist",
+        // "auto_rarity(rank=N)", "auto_rarity(poracle-ultra-rare, pct=0.0123)", "auto_rarity(unknown)"
+        function parseListType(listType) {
+            const lt = listType || 'unknown';
+            if (lt === 'ivlist') return { group: 'vip', label: 'IV', cls: 'bg-blue-100 text-blue-700 border border-blue-200' };
+            if (lt === 'celllist') return { group: 'vip', label: 'Cell', cls: 'bg-emerald-100 text-emerald-700 border border-emerald-200' };
+            if (lt.startsWith('auto_rarity')) {
+                const detail = (lt.match(/auto_rarity\((.*)\)/) || [])[1] || '';
+                const pctMatch = detail.match(/pct=([\d.]+)/);
+                const pct = pctMatch ? ' · ' + pctMatch[1] + '%' : '';
+                if (detail.startsWith('poracle-ultra-rare')) return { group: 'rarity', label: 'Ultra Rare' + pct, cls: 'bg-purple-100 text-purple-700 border border-purple-200' };
+                if (detail.startsWith('poracle-very-rare')) return { group: 'rarity', label: 'Very Rare' + pct, cls: 'bg-rose-100 text-rose-700 border border-rose-200' };
+                if (detail.startsWith('poracle-rare')) return { group: 'rarity', label: 'Rare' + pct, cls: 'bg-orange-100 text-orange-700 border border-orange-200' };
+                if (detail.startsWith('poracle-uncommon')) return { group: 'rarity', label: 'Uncommon' + pct, cls: 'bg-yellow-100 text-yellow-700 border border-yellow-200' };
+                const rankMatch = detail.match(/rank=(\d+)/);
+                if (rankMatch) return { group: 'rarity', label: 'Rank ' + rankMatch[1], cls: 'bg-indigo-100 text-indigo-700 border border-indigo-200' };
+                return { group: 'rarity', label: 'Unranked', cls: 'bg-gray-100 text-gray-600 border border-gray-200' };
+            }
+            return { group: 'vip', label: '?', cls: 'bg-gray-100 text-gray-500 border border-gray-200' };
+        }
+
+        function renderQueueGroup(elId, entries) {
+            const el = document.getElementById(elId);
+            const prevScroll = el.scrollTop;
+            el.innerHTML = '';
+            if (entries.length === 0) {
+                renderExpandButton(elId, 0, 10);
+                el.innerHTML = '<p class="text-sm text-gray-500 py-1 italic w-full">No entries.</p>';
+                return;
+            }
+            const isExpanded = expandedStates[elId];
+            entries.forEach((item, index) => {
+                const div = document.createElement('div');
+                div.className = 'flex justify-between items-center gap-2 text-sm py-1 px-2 rounded-lg odd:bg-white/60 shrink-0';
+                if (index >= 10) {
+                    div.classList.add('list-item-hidden');
+                    if (!isExpanded) div.classList.add('hidden');
+                }
+                const tag = parseListType(item.list_type);
+                div.innerHTML = `
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="text-gray-400 text-[11px] font-mono w-7 text-right shrink-0">#${index + 1}</span>
+                        <span class="font-medium text-gray-800 truncate">${item.pokemon}</span>
+                        <span class="pill ${tag.cls} shrink-0">${tag.label}</span>
+                    </div>
+                    <span class="text-gray-400 text-xs truncate max-w-[140px] text-right shrink-0" title="${item.area}">${item.area}</span>
+                `;
+                el.appendChild(div);
+            });
+            renderExpandButton(elId, entries.length, 10);
+            el.scrollTop = prevScroll;
+        }
+
         async function fetchQueuePreview() {
             try {
                 const response = await fetch('/queue?count=100');
                 if (!response.ok) return;
                 const data = await response.json();
-                
-                // Update count in title
+
+                const entries = data.entries || [];
                 const countElem = document.getElementById('queue-preview-count');
-                if (countElem) {
-                    countElem.textContent = data.entries ? data.entries.length : 0;
-                }
-                
-                const elId = 'queue-preview-list';
-                const el = document.getElementById(elId);
-                el.innerHTML = '';
-                
-                if (!data.entries || data.entries.length === 0) {
-                    el.innerHTML = '<p class="text-sm text-gray-500 py-1 italic w-full">Queue is currently empty.</p>';
-                    return;
-                }
-                
-                const isExpanded = expandedStates[elId];
-                
-                data.entries.forEach((item, index) => {
-                    const div = document.createElement('div');
-                    div.className = 'flex justify-between items-center text-sm py-0.5 border-b border-gray-50 last:border-0';
-                    if (index >= 10) {
-                        div.classList.add('list-item-hidden');
-                        if (!isExpanded) {
-                            div.classList.add('hidden');
-                        }
-                    }
-                    div.innerHTML = `
-                        <div class="flex items-center gap-2">
-                            <span class="text-gray-400 text-xs w-6">#${index + 1}</span>
-                            <span class="font-medium text-gray-800">${item.pokemon}</span>
-                        </div>
-                        <span class="text-gray-400 text-xs truncate max-w-[150px]" title="${item.area}">${item.area}</span>
-                    `;
-                    el.appendChild(div);
+                if (countElem) countElem.textContent = entries.length;
+
+                // Split into priority-list entries (ivlist/celllist) and auto-rarity entries.
+                // Each group keeps the overall priority order.
+                const vipEntries = [];
+                const rarityEntries = [];
+                entries.forEach(item => {
+                    (parseListType(item.list_type).group === 'rarity' ? rarityEntries : vipEntries).push(item);
                 });
-                
-                if (data.entries.length > 10) {
-                    const btn = document.createElement('button');
-                    btn.id = elId + '-btn';
-                    btn.className = 'text-xs text-blue-600 hover:text-blue-800 mt-2 text-left font-medium';
-                    btn.textContent = isExpanded ? 'Show less' : 'Show all';
-                    btn.onclick = () => toggleExpand(elId);
-                    el.appendChild(btn);
-                }
+
+                document.getElementById('queue-vip-count').textContent = vipEntries.length;
+                document.getElementById('queue-rarity-count').textContent = rarityEntries.length;
+
+                renderQueueGroup('queue-vip-list', vipEntries);
+                renderQueueGroup('queue-rarity-list', rarityEntries);
             } catch (err) {
                 console.error("Failed to fetch queue preview:", err);
             }
@@ -554,59 +650,64 @@
                     }
 
                     if (Object.keys(categoriesData).length > 0) {
+                        // Preserve per-area scroll positions across the 5s refresh
+                        const prevAreaScroll = {};
+                        areaRaresEl.querySelectorAll('[id^="rares-"]').forEach(d => { prevAreaScroll[d.id] = d.scrollTop; });
                         areaRaresEl.innerHTML = '';
                         for (const [area, pokemonList] of Object.entries(categoriesData)) {
                             if (pokemonList.length === 0) continue;
-                            
-                            const areaDiv = document.createElement('div');
-                            areaDiv.className = 'flex flex-col gap-2 border border-gray-100 p-4 rounded-lg bg-gray-50';
-                            
-                            const areaTitle = document.createElement('h4');
-                            areaTitle.className = 'font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-1';
-                            areaTitle.textContent = area;
-                            areaDiv.appendChild(areaTitle);
-                            
-                            const listDiv = document.createElement('div');
-                            listDiv.className = 'flex flex-col gap-1';
-                            
+
                             const elId = 'rares-' + area.replace(/[^a-zA-Z0-9]/g, '-');
-                            listDiv.id = elId;
                             if (expandedStates[elId] === undefined) {
                                 expandedStates[elId] = false;
                             }
                             const isExpanded = expandedStates[elId];
-                            
+
+                            const areaDiv = document.createElement('div');
+                            areaDiv.className = 'flex flex-col rounded-xl border border-gray-100 bg-gray-50/70 p-4';
+
+                            const header = document.createElement('div');
+                            header.className = 'flex items-center justify-between border-b border-gray-200 pb-2 mb-2';
+                            header.innerHTML = `
+                                <h4 class="font-semibold text-gray-800 truncate" title="${area}">${area}</h4>
+                                <span class="pill bg-orange-100 text-orange-700 border border-orange-200 shrink-0 ml-2">${pokemonList.length}</span>
+                            `;
+                            areaDiv.appendChild(header);
+
+                            // Rows live in a height-capped scrollable container so
+                            // "Show all" scrolls within the card instead of expanding it.
+                            const listDiv = document.createElement('div');
+                            listDiv.className = 'flex flex-col gap-0.5 overflow-y-auto nice-scroll max-h-64';
+                            listDiv.id = elId;
+
                             pokemonList.forEach((item, index) => {
                                 const row = document.createElement('div');
-                                row.className = 'flex justify-between items-center text-sm py-0.5 border-b border-gray-200 last:border-0';
-                                
+                                row.className = 'flex justify-between items-center gap-2 text-sm py-1 px-2 rounded-lg odd:bg-white/60 shrink-0';
                                 if (index >= defaultExpandLimit) {
                                     row.classList.add('list-item-hidden');
-                                    if (!isExpanded) {
-                                        row.classList.add('hidden');
-                                    }
+                                    if (!isExpanded) row.classList.add('hidden');
                                 }
-                                
                                 row.innerHTML = `
-                                    <span class="font-medium text-gray-700">${item.pokemon}</span>
-                                    <span class="text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full font-medium border border-orange-200">${item.count}</span>
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <span class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold shrink-0 ${rankBadgeClass(index)}">${index + 1}</span>
+                                        <span class="font-medium text-gray-700 truncate">${item.pokemon}</span>
+                                    </div>
+                                    <span class="pill bg-orange-100 text-orange-800 border border-orange-200 shrink-0">${item.count}</span>
                                 `;
                                 listDiv.appendChild(row);
                             });
-                            
-                            if (pokemonList.length > defaultExpandLimit) {
-                                const btn = document.createElement('button');
-                                btn.id = elId + '-btn';
-                                btn.className = 'text-xs text-blue-600 hover:text-blue-800 mt-2 text-left font-medium w-max';
-                                btn.textContent = isExpanded ? 'Show less' : 'Show all';
-                                btn.onclick = () => toggleExpand(elId);
-                                listDiv.appendChild(btn);
-                            }
-                            
                             areaDiv.appendChild(listDiv);
+
+                            const btnWrap = document.createElement('div');
+                            btnWrap.id = elId + '-btnwrap';
+                            btnWrap.className = 'pt-2';
+                            areaDiv.appendChild(btnWrap);
                             areaRaresEl.appendChild(areaDiv);
+
+                            renderExpandButton(elId, pokemonList.length, defaultExpandLimit);
+                            listDiv.scrollTop = prevAreaScroll[elId] || 0;
                         }
-                        
+
                         if (areaRaresEl.innerHTML === '') {
                             areaRaresEl.innerHTML = '<p class="text-sm text-gray-500 py-2 italic col-span-full">No rarity data populated yet.</p>';
                         }
