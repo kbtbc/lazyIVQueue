@@ -41,10 +41,12 @@ class RarityManager:
         # Rank lookup cache: {area: {pokemon_key: rank}}
         self._rank_cache: Dict[str, Dict[str, int]] = {}
 
-        # Global ranking: [(pokemon_key, area, count), ...] sorted by count ASC
-        self._global_rankings: List[Tuple[str, str, int]] = []
-        # Global rank lookup: {(pokemon_key, area): global_rank}
-        self._global_rank_cache: Dict[Tuple[str, str], int] = {}
+        # Global species ranking: [(pokemon_key, global_count), ...] sorted by count ASC
+        self._global_species_rankings: List[Tuple[str, int]] = []
+        # Global rank lookup: {pokemon_key: global_rank}
+        self._global_rank_cache: Dict[str, int] = {}
+        # Global percentage lookup: {pokemon_key: percentage}
+        self._global_pct_cache: Dict[str, float] = {}
 
         self._manager_lock: asyncio.Lock = asyncio.Lock()
         self._initialized: bool = False
@@ -137,39 +139,22 @@ class RarityManager:
 
     def get_rarity_percent(self, pokemon_id: int, form: Optional[int], area: str) -> Optional[float]:
         """
-        Get the rarity percentage for a Pokemon in a specific area.
+        Get the rarity percentage for a Pokemon globally across all active spawns.
         Returns:
             float: Percentage (0.0 to 100.0) of this Pokemon relative to all active spawns globally.
                    Lower is rarer.
-            None: If the Pokemon has never been seen.
+            None: If the Pokemon has never been seen in active census.
         """
         keys_to_try = []
         if form is not None:
             keys_to_try.append(f"{pokemon_id}:{form}")
         keys_to_try.append(str(pokemon_id))
-        
-        # We need the count of this pokemon globally
-        count = 0
-        found = False
-        
+
         for pokemon_key in keys_to_try:
-            if found:
-                break
-            for area_name, rankings in self._rankings.items():
-                for pk, c in rankings:
-                    if pk == pokemon_key:
-                        count += c
-                        found = True
-                        break
-                        
-        if not found:
-            return None
-            
-        total_active_global = sum(c for _, _, c in self._global_rankings)
-        if total_active_global == 0:
-            return 0.0
-            
-        return (count / total_active_global) * 100
+            if pokemon_key in self._global_pct_cache:
+                return self._global_pct_cache[pokemon_key]
+
+        return None
 
     def get_rarity_rank(
         self, pokemon_id: int, form: Optional[int], area: str
@@ -306,53 +291,57 @@ class RarityManager:
                 logger.error(f"Error in rarity ranking loop: {e}")
 
     async def _recalculate_rankings(self) -> None:
-        """Recalculate rarity rankings for all areas and build global ranking."""
+        """Recalculate rarity rankings for all areas and build global species ranking."""
         async with self._manager_lock:
             new_rankings: Dict[str, List[Tuple[str, int]]] = {}
             new_cache: Dict[str, Dict[str, int]] = {}
 
-            # Also build global ranking: [(pokemon_key, area, count), ...]
-            global_counts: List[Tuple[str, str, int]] = []
+            # Aggregate total active count per Pokemon key globally across all areas
+            global_species_counts: Dict[str, int] = {}
 
             for area, pokemon_dict in self._actives.items():
-                # Count active spawns per Pokemon
                 counts: List[Tuple[str, int]] = []
                 for pokemon_key, despawn_times in pokemon_dict.items():
                     count = len(despawn_times)
                     if count > 0:
                         counts.append((pokemon_key, count))
-                        # Add to global list
-                        global_counts.append((pokemon_key, area, count))
+                        global_species_counts[pokemon_key] = global_species_counts.get(pokemon_key, 0) + count
 
-                # Sort by count ASC (lowest count = rarest)
+                # Sort per-area by count ASC
                 counts.sort(key=lambda x: x[1])
                 new_rankings[area] = counts
 
-                # Build per-area rank cache (ranks start at 1, 0 is reserved for unknown)
+                # Build per-area rank cache (1-indexed)
                 new_cache[area] = {}
                 for idx, (pokemon_key, _) in enumerate(counts):
-                    new_cache[area][pokemon_key] = idx + 1  # Start from 1
+                    new_cache[area][pokemon_key] = idx + 1
 
-            # Sort global rankings by count ASC (rarest first across all areas)
-            global_counts.sort(key=lambda x: x[2])
+            # Global species rankings (sorted ASC by total global count)
+            global_species_list = sorted(global_species_counts.items(), key=lambda x: x[1])
+            total_active_global = sum(global_species_counts.values())
 
-            # Build global rank cache (ranks start at 1, 0 is reserved for unknown)
-            new_global_cache: Dict[Tuple[str, str], int] = {}
-            for idx, (pokemon_key, area, _) in enumerate(global_counts):
-                new_global_cache[(pokemon_key, area)] = idx + 1  # Start from 1
+            # Global species caches
+            new_global_rank_cache: Dict[str, int] = {
+                pk: idx + 1 for idx, (pk, _) in enumerate(global_species_list)
+            }
+            new_global_pct_cache: Dict[str, float] = {
+                pk: (count / total_active_global * 100) if total_active_global > 0 else 0.0
+                for pk, count in global_species_list
+            }
 
             self._rankings = new_rankings
             self._rank_cache = new_cache
-            self._global_rankings = global_counts
-            self._global_rank_cache = new_global_cache
+            self._global_species_rankings = global_species_list
+            self._global_rank_cache = new_global_rank_cache
+            self._global_pct_cache = new_global_pct_cache
             self._last_ranking_time = time.time()
 
         # Log summary
-        total_pokemon = sum(len(r) for r in self._rankings.values())
-        would_queue = min(len(self._global_rankings), AppConfig.iv_threshold)
+        total_pokemon = len(self._global_species_rankings)
+        would_queue = min(total_pokemon, AppConfig.iv_threshold)
         logger.debug(
             f"Rarity rankings updated: {len(self._rankings)} areas, "
-            f"{total_pokemon} unique Pokemon tracked, "
+            f"{total_pokemon} unique global Pokemon tracked, "
             f"{would_queue} would queue globally (threshold={AppConfig.iv_threshold})"
         )
 
@@ -412,8 +401,8 @@ class RarityManager:
         result: Dict[str, Any] = {
             "status": self._status,
             "threshold": AppConfig.iv_threshold,
-            "total_tracked_globally": len(self._global_rankings),
-            "would_queue_globally": min(len(self._global_rankings), AppConfig.iv_threshold),
+            "total_tracked_globally": len(self._global_species_rankings),
+            "would_queue_globally": min(len(self._global_species_rankings), AppConfig.iv_threshold),
             "areas": {},
         }
 
@@ -429,10 +418,10 @@ class RarityManager:
                 "rankings": [
                     {
                         "area_rank": idx + 1,  # 1-based ranking (0 = unknown)
-                        "global_rank": self._global_rank_cache.get((pk, area_name)),
+                        "global_rank": self._global_rank_cache.get(pk),
                         "pokemon": pk,
                         "active_count": count,
-                        "would_queue": self._global_rank_cache.get((pk, area_name), 0) <= AppConfig.iv_threshold,
+                        "would_queue": (self._global_rank_cache.get(pk, 99999) <= AppConfig.iv_threshold) if AppConfig.auto_rarity_system == 'poracle' or not AppConfig.filter_with_koji else (idx + 1 <= AppConfig.iv_threshold),
                     }
                     for idx, (pk, count) in enumerate(rankings)
                 ],
@@ -464,10 +453,16 @@ class RarityManager:
                 for pk, count in rankings[:10]
             ]
             
-        # Global top rarest
+        # Global top rarest species
+        total_active_global = sum(c for _, c in self._global_species_rankings)
         top_rarest_global = [
-            {"pokemon": f"{get_pokemon_name(*map(int, pk.split(':')) if ':' in pk else (int(pk), None))} ({pk})", "area": area, "count": count, "rank": idx + 1}
-            for idx, (pk, area, count) in enumerate(self._global_rankings[:50])
+            {
+                "pokemon": f"{get_pokemon_name(*map(int, pk.split(':')) if ':' in pk else (int(pk), None))} ({pk})",
+                "count": count,
+                "pct": round((count / total_active_global * 100), 4) if total_active_global > 0 else 0.0,
+                "rank": idx + 1
+            }
+            for idx, (pk, count) in enumerate(self._global_species_rankings[:50])
         ]
         
         poracle_rankings = {}
@@ -479,15 +474,13 @@ class RarityManager:
                 "Uncommon": [],
                 "Common": []
             }
-            # Bin global rankings into poracle categories
-            total_active_global = sum(c for _, _, c in self._global_rankings)
-            
-            for idx, (pk, area, count) in enumerate(self._global_rankings):
+            # Bin global species rankings into Poracle categories
+            for idx, (pk, count) in enumerate(self._global_species_rankings):
                 if total_active_global == 0:
                     break
                 pct = (count / total_active_global) * 100
                 pokemon_name = f"{get_pokemon_name(*map(int, pk.split(':')) if ':' in pk else (int(pk), None))} ({pk})"
-                entry = {"pokemon": pokemon_name, "area": area, "count": count, "rank": idx + 1}
+                entry = {"pokemon": pokemon_name, "count": count, "pct": round(pct, 4), "rank": idx + 1}
                 if pct <= AppConfig.poracle_ultra_rare:
                     poracle_rankings["Ultra Rare"].append(entry)
                 elif pct <= AppConfig.poracle_very_rare:
@@ -496,6 +489,8 @@ class RarityManager:
                     poracle_rankings["Rare"].append(entry)
                 elif pct <= AppConfig.poracle_uncommon:
                     poracle_rankings["Uncommon"].append(entry)
+                else:
+                    poracle_rankings["Common"].append(entry)
 
         return {
             "status": self._status,
