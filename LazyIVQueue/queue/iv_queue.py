@@ -272,11 +272,11 @@ class IVQueueManager:
                     if e_form != p_form:
                         continue
 
-                    threshold = 150.0
+                    threshold = 70.0
                     if entry.seen_type == "nearby_stop":
-                        threshold = 300.0
+                        threshold = 200.0
                     elif entry.seen_type == "nearby_cell":
-                        threshold = 350.0
+                        threshold = 150.0
 
                     if is_within_distance(entry.lat, entry.lon, lat, lon, threshold):
                         removed = self._remove_entry(key)
