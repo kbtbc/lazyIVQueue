@@ -678,22 +678,23 @@ class IVQueueManager:
 
         return removed_count
 
-    async def cleanup_timed_out_scouts(self) -> int:
-        """
-        Remove entries that timed out waiting for IV data.
+        async def cleanup_timed_out_scouts(self) -> int:
+                """
+                Remove entries that timed out waiting for IV data.
 
-        Any entry with scout_started_at that exceeds timeout_iv is removed.
-        This covers both stuck scouts and scouts waiting for IV data.
+                Any entry with scout_started_at that exceeds timeout_iv is removed.
+                This covers both stuck scouts and scouts waiting for IV data.
 
-        Uses AppConfig.timeout_iv to determine timeout threshold.
+                Uses AppConfig.timeout_iv to determine timeout threshold.
 
-        Returns:
-            Number of entries removed
-        """
-        current_time = time.time()
-        timeout_threshold = AppConfig.timeout_iv
-        removed_count = 0
-        semaphores_to_release = 0
+                Returns:
+                    Number of entries removed
+                """
+                current_time = time.time()
+                timeout_threshold = AppConfig.timeout_iv
+                removed_count = 0
+                semaphores_to_release = 0
+                timed_out_encounter_ids: list[str] = []
 
         async with self._queue_lock:
             for key, entry in list(self._entries.items()):
@@ -705,6 +706,9 @@ class IVQueueManager:
                             f"<red>[x]</red> Scout timeout: {entry.pokemon_display} in {entry.area} "
                             f"[encounter_id: {entry.encounter_id}] - no IV after {int(elapsed)}s"
                         )
+                        if entry.encounter_id:
+                            timed_out_encounter_ids.append(str(entry.encounter_id))
+
                         pokemon_display = entry.pokemon_display
                         seen_type = entry.seen_type
 
@@ -728,8 +732,9 @@ class IVQueueManager:
             self._scout_semaphore.release()
 
         if removed_count > 0:
+            ids_str = ", ".join(timed_out_encounter_ids) if timed_out_encounter_ids else "N/A"
             logger.opt(colors=True).info(
-                f"<red>[x]</red> Cleaned up {removed_count} timed out scout entries"
+                f"<red>[x]</red> Cleaned up {removed_count} timed out scout entries (encounter_ids: [{ids_str}])"
             )
 
         return removed_count
