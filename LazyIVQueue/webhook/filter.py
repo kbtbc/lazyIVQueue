@@ -97,8 +97,10 @@ def parse_pokemon_data(raw: Dict[str, Any]) -> Optional[PokemonData]:
         def_ = raw.get("individual_defense") if raw.get("individual_defense") is not None else raw.get("def")
         sta = raw.get("individual_stamina") if raw.get("individual_stamina") is not None else raw.get("sta")
 
-        encounter_id_raw = raw.get("encounter_id") if raw.get("encounter_id") is not None else raw.get("id")
-        encounter_id = normalize_encounter_id(encounter_id_raw)
+        # Extract encounter_id: try encounter_id first, fallback to id if normalization returns None
+        encounter_id = normalize_encounter_id(raw.get("encounter_id"))
+        if encounter_id is None:
+            encounter_id = normalize_encounter_id(raw.get("id"))
 
         form_raw = raw.get("form")
         form = int(form_raw) if form_raw is not None else None
@@ -392,6 +394,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
         lon=pokemon.longitude,
         pokemon_id=pokemon.pokemon_id,
         form=pokemon.form,
+        spawnpoint_id=pokemon.spawnpoint_id,
     )
     if not removed:
         # For nearby_cell: match by s2_cell_id + pokemon_id
