@@ -678,66 +678,66 @@ class IVQueueManager:
 
         return removed_count
 
-        async def cleanup_timed_out_scouts(self) -> int:
-                """
-                Remove entries that timed out waiting for IV data.
+    async def cleanup_timed_out_scouts(self) -> int:
+            """
+            Remove entries that timed out waiting for IV data.
 
-                Any entry with scout_started_at that exceeds timeout_iv is removed.
-                This covers both stuck scouts and scouts waiting for IV data.
+            Any entry with scout_started_at that exceeds timeout_iv is removed.
+            This covers both stuck scouts and scouts waiting for IV data.
 
-                Uses AppConfig.timeout_iv to determine timeout threshold.
+            Uses AppConfig.timeout_iv to determine timeout threshold.
 
-                Returns:
-                    Number of entries removed
-                """
-                current_time = time.time()
-                timeout_threshold = AppConfig.timeout_iv
-                removed_count = 0
-                semaphores_to_release = 0
-                timed_out_encounter_ids: list[str] = []
+            Returns:
+                Number of entries removed
+            """
+            current_time = time.time()
+            timeout_threshold = AppConfig.timeout_iv
+            removed_count = 0
+            semaphores_to_release = 0
+            timed_out_encounter_ids: list[str] = []
 
-        async with self._queue_lock:
-            for key, entry in list(self._entries.items()):
-                # Check if scout started and exceeded timeout
-                if entry.scout_started_at:
-                    elapsed = current_time - entry.scout_started_at
-                    if elapsed > timeout_threshold:
-                        logger.opt(colors=True).debug(
-                            f"<red>[x]</red> Scout timeout: {entry.pokemon_display} in {entry.area} "
-                            f"[encounter_id: {entry.encounter_id}] - no IV after {int(elapsed)}s"
-                        )
-                        if entry.encounter_id:
-                            timed_out_encounter_ids.append(str(entry.encounter_id))
-
-                        pokemon_display = entry.pokemon_display
-                        seen_type = entry.seen_type
-
-                        # Track if we need to release semaphore
-                        if entry.is_scouting:
-                            semaphores_to_release += 1
-                            self._active_scouts = max(0, self._active_scouts - 1)
-
-                        entry.is_removed = True
-                        del self._entries[key]
-                        removed_count += 1
-                        # Update timeout stats by seen_type (skip unknown types)
-                        if seen_type in self._seen_types:
-                            self._timeouts_by_type[seen_type] = self._timeouts_by_type.get(seen_type, 0) + 1
-                            self._timeouts_by_pokemon[seen_type][pokemon_display] = (
-                                self._timeouts_by_pokemon[seen_type].get(pokemon_display, 0) + 1
+            async with self._queue_lock:
+                for key, entry in list(self._entries.items()):
+                    # Check if scout started and exceeded timeout
+                    if entry.scout_started_at:
+                        elapsed = current_time - entry.scout_started_at
+                        if elapsed > timeout_threshold:
+                            logger.opt(colors=True).debug(
+                                f"<red>[x]</red> Scout timeout: {entry.pokemon_display} in {entry.area} "
+                                f"[encounter_id: {entry.encounter_id}] - no IV after {int(elapsed)}s"
                             )
+                            if entry.encounter_id:
+                                timed_out_encounter_ids.append(str(entry.encounter_id))
 
-        # Release semaphores outside the lock
-        for _ in range(semaphores_to_release):
-            self._scout_semaphore.release()
+                            pokemon_display = entry.pokemon_display
+                            seen_type = entry.seen_type
 
-        if removed_count > 0:
-            ids_str = ", ".join(timed_out_encounter_ids) if timed_out_encounter_ids else "N/A"
-            logger.opt(colors=True).info(
-                f"<red>[x]</red> Cleaned up {removed_count} timed out scout entries (encounter_ids: [{ids_str}])"
-            )
+                            # Track if we need to release semaphore
+                            if entry.is_scouting:
+                                semaphores_to_release += 1
+                                self._active_scouts = max(0, self._active_scouts - 1)
 
-        return removed_count
+                            entry.is_removed = True
+                            del self._entries[key]
+                            removed_count += 1
+                            # Update timeout stats by seen_type (skip unknown types)
+                            if seen_type in self._seen_types:
+                                self._timeouts_by_type[seen_type] = self._timeouts_by_type.get(seen_type, 0) + 1
+                                self._timeouts_by_pokemon[seen_type][pokemon_display] = (
+                                    self._timeouts_by_pokemon[seen_type].get(pokemon_display, 0) + 1
+                                )
+
+            # Release semaphores outside the lock
+            for _ in range(semaphores_to_release):
+                self._scout_semaphore.release()
+
+            if removed_count > 0:
+                ids_str = ", ".join(timed_out_encounter_ids) if timed_out_encounter_ids else "N/A"
+                logger.opt(colors=True).info(
+                    f"<red>[x]</red> Cleaned up {removed_count} timed out scout entries (encounter_ids: [{ids_str}])"
+                )
+
+            return removed_count
 
     async def cleanup_stale_heap_entries(self) -> int:
         """
