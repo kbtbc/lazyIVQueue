@@ -83,21 +83,14 @@ class PokemonData:
 
 
 def parse_pokemon_data(raw: Dict[str, Any]) -> Optional[PokemonData]:
-    """
-    Parse raw webhook payload into PokemonData.
-    Robust against varying field names across webhook sources (encounter_id/id, atk/individual_attack, lat/latitude, etc.).
-    """
     try:
-        pokemon_id = raw.get("pokemon_id") if raw.get("pokemon_id") is not None else (
-            raw.get("pokemon") if raw.get("pokemon") is not None else raw.get("id")
-        )
+        pokemon_id = raw.get("pokemon_id") if raw.get("pokemon_id") is not None else raw.get("pokemon")
         latitude = raw.get("latitude") if raw.get("latitude") is not None else raw.get("lat")
         longitude = raw.get("longitude") if raw.get("longitude") is not None else (
             raw.get("lon") if raw.get("lon") is not None else raw.get("lng")
         )
 
         if pokemon_id is None or latitude is None or longitude is None:
-            logger.debug(f"Missing required Pokemon fields: {raw.keys()}")
             return None
 
         atk = raw.get("individual_attack") if raw.get("individual_attack") is not None else raw.get("atk")
@@ -107,9 +100,12 @@ def parse_pokemon_data(raw: Dict[str, Any]) -> Optional[PokemonData]:
         encounter_id_raw = raw.get("encounter_id") if raw.get("encounter_id") is not None else raw.get("id")
         encounter_id = normalize_encounter_id(encounter_id_raw)
 
+        form_raw = raw.get("form")
+        form = int(form_raw) if form_raw is not None else None
+
         return PokemonData(
             pokemon_id=int(pokemon_id),
-            form=raw.get("form"),
+            form=form,
             latitude=float(latitude),
             longitude=float(longitude),
             spawnpoint_id=raw.get("spawnpoint_id"),

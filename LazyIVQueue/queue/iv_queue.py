@@ -202,67 +202,47 @@ class IVQueueManager:
             return True
 
     async def remove_by_match(
-            self, encounter_id: Optional[str], lat: float, lon: float,
-            pokemon_id: Optional[int] = None, form: Optional[int] = None
-        ) -> Optional[QueueEntry]:
-            """
-            Remove entry matching by encounter_id (exact) or coordinates.
-            Proximity threshold varies by queued seen_type:
-              - wild: 70m
-              - nearby_stop: 300m (Pokestop center vs spawnpoint location)
-              - nearby_cell: 350m (S2 L15 cell center vs spawnpoint location)
-            """
-            removed = None
-            was_scouting = False
-            target_eid = normalize_encounter_id(encounter_id)
+        self, encounter_id: Optional[str], lat: float, lon: float,
+        pokemon_id: Optional[int] = None, form: Optional[int] = None
+    ) -> Optional[QueueEntry]:
+        removed = None
+        target_eid = normalize_encounter_id(encounter_id)
 
-            async with self._queue_lock:
-                # Step 1: Exact encounter_id match
-                if target_eid:
-                    for key, entry in list(self._entries.items()):
-                        if entry.is_removed:
-                            continue
-                        entry_eid = normalize_encounter_id(entry.encounter_id)
-                        if entry_eid and entry_eid == target_eid:
-                            removed = self._remove_entry(key)
-                            if removed:
-                                was_scouting = removed.is_scouting
-                            break
+        async with self._queue_lock:
+            # Step 1: Normalized encounter_id match (handles signed vs unsigned 64-bit int64)
+            if target_eid:
+                for key, entry in list(self._entries.items()):
+                    if entry.is_removed:
+                        continue
+                    entry_eid = normalize_encounter_id(entry.encounter_id)
+                    if entry_eid and entry_eid == target_eid:
+                        removed = self._remove_entry(key)
+                        break
 
-                # Step 2: Proximity / Pokemon ID fallback
-                if not removed and pokemon_id is not None:
-                    for key, entry in list(self._entries.items()):
-                        if entry.is_removed:
-                            continue
-                        if entry.pokemon_id != pokemon_id:
-                            continue
-                        # Form match: treat 0 and None as default form
-                        e_form = 0 if entry.form is None else entry.form
-                        p_form = 0 if form is None else form
-                        if e_form != p_form:
-                            continue
+            # Step 2: Proximity / Pokemon ID fallback
+            if not removed and pokemon_id is not None:
+                for key, entry in list(self._entries.items()):
+                    if entry.is_removed or entry.pokemon_id != pokemon_id:
+                        continue
+                    
+                    # Treat form 0 and None as default form
+                    e_form = 0 if entry.form is None else entry.form
+                    p_form = 0 if form is None else form
+                    if e_form != p_form:
+                        continue
 
-                        # Dynamic proximity threshold based on seen_type
-                        threshold = 70.0
-                        if entry.seen_type == "nearby_stop":
-                            threshold = 300.0
-                        elif entry.seen_type == "nearby_cell":
-                            threshold = 350.0
+                    threshold = 70.0
+                    if entry.seen_type == "nearby_stop":
+                        threshold = 300.0
+                    elif entry.seen_type == "nearby_cell":
+                        threshold = 350.0
 
-                        if is_within_distance(
-                            entry.lat, entry.lon, lat, lon, threshold
-                        ):
-                            removed = self._remove_entry(key)
-                            if removed:
-                                was_scouting = removed.is_scouting
-                            break
+                    if is_within_distance(entry.lat, entry.lon, lat, lon, threshold):
+                        removed = self._remove_entry(key)
+                        break
 
-            # Release semaphore outside the lock if entry was scouting
-            if was_scouting:
-                self._scout_semaphore.release()
-
-            return removed
-
+        return removed
+                
     async def remove_by_cell_match(
         self, pokemon_id: int, form: Optional[int], s2_cell_id: str
     ) -> Optional[QueueEntry]:
