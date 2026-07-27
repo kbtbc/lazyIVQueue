@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional, Tuple
 from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.utils.koji_geofences import KojiGeofenceManager
 from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
+from LazyIVQueue.utils.encounter_utils import normalize_encounter_id
 from LazyIVQueue.utils.s2_utils import get_s2_cell_id
 from LazyIVQueue.queue.iv_queue import IVQueueManager, QueueEntry
 from LazyIVQueue.rarity.manager import RarityManager
@@ -84,21 +85,27 @@ class PokemonData:
 def parse_pokemon_data(raw: Dict[str, Any]) -> Optional[PokemonData]:
     """
     Parse raw webhook payload into PokemonData.
+    Robust against varying field names across webhook sources (encounter_id/id, atk/individual_attack, lat/latitude, etc.).
     """
     try:
-        pokemon_id = raw.get("pokemon_id")
-        latitude = raw.get("latitude")
-        longitude = raw.get("longitude")
+        pokemon_id = raw.get("pokemon_id") if raw.get("pokemon_id") is not None else (
+            raw.get("pokemon") if raw.get("pokemon") is not None else raw.get("id")
+        )
+        latitude = raw.get("latitude") if raw.get("latitude") is not None else raw.get("lat")
+        longitude = raw.get("longitude") if raw.get("longitude") is not None else (
+            raw.get("lon") if raw.get("lon") is not None else raw.get("lng")
+        )
 
-        # Validate required fields
         if pokemon_id is None or latitude is None or longitude is None:
             logger.debug(f"Missing required Pokemon fields: {raw.keys()}")
             return None
 
-        # Ensure encounter_id is always a string for consistent matching
-        encounter_id = raw.get("encounter_id")
-        if encounter_id is not None:
-            encounter_id = str(encounter_id)
+        atk = raw.get("individual_attack") if raw.get("individual_attack") is not None else raw.get("atk")
+        def_ = raw.get("individual_defense") if raw.get("individual_defense") is not None else raw.get("def")
+        sta = raw.get("individual_stamina") if raw.get("individual_stamina") is not None else raw.get("sta")
+
+        encounter_id_raw = raw.get("encounter_id") if raw.get("encounter_id") is not None else raw.get("id")
+        encounter_id = normalize_encounter_id(encounter_id_raw)
 
         return PokemonData(
             pokemon_id=int(pokemon_id),
@@ -106,9 +113,9 @@ def parse_pokemon_data(raw: Dict[str, Any]) -> Optional[PokemonData]:
             latitude=float(latitude),
             longitude=float(longitude),
             spawnpoint_id=raw.get("spawnpoint_id"),
-            individual_attack=raw.get("individual_attack"),
-            individual_defense=raw.get("individual_defense"),
-            individual_stamina=raw.get("individual_stamina"),
+            individual_attack=int(atk) if atk is not None else None,
+            individual_defense=int(def_) if def_ is not None else None,
+            individual_stamina=int(sta) if sta is not None else None,
             encounter_id=encounter_id,
             disappear_time=raw.get("disappear_time"),
             seen_type=raw.get("seen_type", "wild"),
