@@ -263,41 +263,41 @@ class IVQueueManager:
 
             return removed
 
-        async def remove_by_cell_match(
-            self, pokemon_id: int, form: Optional[int], s2_cell_id: str
-        ) -> Optional[QueueEntry]:
-            """
-            Remove ONE entry matching pokemon and S2 cell (for nearby_cell scouting).
-            """
-            removed = None
-            was_scouting = False
-            async with self._queue_lock:
-                for key, entry in list(self._entries.items()):
-                    if entry.is_removed:
-                        continue
-                    # Must be a nearby_cell entry with matching s2_cell_id
-                    if entry.seen_type != "nearby_cell" or entry.s2_cell_id != s2_cell_id:
-                        continue
-                    # Must match pokemon_id
-                    if entry.pokemon_id != pokemon_id:
-                        continue
-                    # Form matching (0 == None for default form)
-                    e_form = 0 if entry.form is None else entry.form
-                    p_form = 0 if form is None else form
-                    if e_form != p_form:
-                        continue
+    async def remove_by_cell_match(
+        self, pokemon_id: int, form: Optional[int], s2_cell_id: str
+    ) -> Optional[QueueEntry]:
+        """
+        Remove ONE entry matching pokemon and S2 cell (for nearby_cell scouting).
+        """
+        removed = None
+        was_scouting = False
+        async with self._queue_lock:
+            for key, entry in list(self._entries.items()):
+                if entry.is_removed:
+                    continue
+                # Must be a nearby_cell entry with matching s2_cell_id
+                if entry.seen_type != "nearby_cell" or entry.s2_cell_id != s2_cell_id:
+                    continue
+                # Must match pokemon_id
+                if entry.pokemon_id != pokemon_id:
+                    continue
+                # Form matching (0 == None for default form)
+                e_form = 0 if entry.form is None else entry.form
+                p_form = 0 if form is None else form
+                if e_form != p_form:
+                    continue
 
-                    # Found match - remove
-                    removed = self._remove_entry(key)
-                    if removed:
-                        was_scouting = removed.is_scouting
-                    break
+                # Found match - remove
+                removed = self._remove_entry(key)
+                if removed:
+                    was_scouting = removed.is_scouting
+                break
 
-            # Release semaphore outside the lock if entry was scouting
-            if was_scouting:
-                self._scout_semaphore.release()
+        # Release semaphore outside the lock if entry was scouting
+        if was_scouting:
+            self._scout_semaphore.release()
 
-            return removed
+        return removed
 
     def _remove_entry(self, key: str) -> Optional[QueueEntry]:
         """
