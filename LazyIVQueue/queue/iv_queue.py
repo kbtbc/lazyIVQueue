@@ -634,6 +634,46 @@ class IVQueueManager:
                         f"(priority {entry['priority']})"
                     )
 
+    async def cleanup_expired(self) -> int:
+        """
+        Remove entries that have expired (disappear_time has passed).
+
+        Returns:
+            Number of entries removed
+        """
+        current_time = int(time.time())
+        removed_count = 0
+        semaphores_to_release = 0
+
+        async with self._queue_lock:
+            for key, entry in list(self._entries.items()):
+                if entry.disappear_time and entry.disappear_time < current_time:
+                    state = "awaiting IV" if entry.is_scouting else "pending"
+                    logger.opt(colors=True).debug(
+                        f"<red>[x]</red> Expired: {entry.pokemon_display} in {entry.area} "
+                        f"[encounter_id: {entry.encounter_id}] - despawned while {state}"
+                    )
+
+                    # Track if we need to release semaphore
+                    if entry.is_scouting:
+                        semaphores_to_release += 1
+                        self._active_scouts = max(0, self._active_scouts - 1)
+
+                    entry.is_removed = True
+                    del self._entries[key]
+                    removed_count += 1
+
+        # Release semaphores outside the lock
+        for _ in range(semaphores_to_release):
+            self._scout_semaphore.release()
+
+        if removed_count > 0:
+            logger.opt(colors=True).info(
+                f"<red>[x]</red> Cleaned up {removed_count} expired queue entries"
+            )
+
+        return removed_count
+        
     async def cleanup_timed_out_scouts(self) -> int:
         """
         Remove entries that timed out waiting for IV data.
