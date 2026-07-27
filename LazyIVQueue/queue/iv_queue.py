@@ -196,63 +196,49 @@ class IVQueueManager:
             return True
 
     async def remove_by_match(
-        self, encounter_id: Optional[str], lat: float, lon: float,
-        pokemon_id: Optional[int] = None, form: Optional[int] = None
-    ) -> Optional[QueueEntry]:
-        """
-        Remove entry matching by encounter_id (exact) or coordinates (70m proximity).
+            self, encounter_id: Optional[str], lat: float, lon: float,
+            pokemon_id: Optional[int] = None, form: Optional[int] = None
+        ) -> Optional[QueueEntry]:
+            """
+            Remove entry matching by encounter_id (exact) or coordinates (70m proximity).
+            """
+            removed = None
+            was_scouting = False
+            async with self._queue_lock:
+                # First try exact encounter_id match (string-safe)
+                if encounter_id is not None:
+                    target_eid = str(encounter_id)
+                    for key, entry in list(self._entries.items()):
+                        if entry.encounter_id is not None and str(entry.encounter_id) == target_eid and not entry.is_removed:
+                            removed = self._remove_entry(key)
+                            if removed:
+                                was_scouting = removed.is_scouting
+                            break
 
-        Matching order:
-        1. Exact encounter_id match (if provided)
-        2. Coordinate proximity match (70m threshold) + pokemon_id match
+                # Then try coordinate proximity match (fallback) - requires pokemon_id match
+                if not removed and pokemon_id is not None:
+                    for key, entry in list(self._entries.items()):
+                        if entry.is_removed:
+                            continue
+                        # Must match pokemon_id
+                        if entry.pokemon_id != pokemon_id:
+                            continue
+                        # Form match: if form provided and both are not None, must match
+                        if form is not None and entry.form is not None and form != entry.form:
+                            continue
+                        if is_within_distance(
+                            entry.lat, entry.lon, lat, lon, COORDINATE_MATCH_THRESHOLD_METERS
+                        ):
+                            removed = self._remove_entry(key)
+                            if removed:
+                                was_scouting = removed.is_scouting
+                            break
 
-        Args:
-            encounter_id: Encounter ID to match (exact match, preferred)
-            lat: Latitude for proximity match
-            lon: Longitude for proximity match
-            pokemon_id: Pokemon ID to match (required for proximity match)
-            form: Pokemon form to match (optional, None matches any)
+            # Release semaphore outside the lock if entry was scouting
+            if was_scouting:
+                self._scout_semaphore.release()
 
-        Returns:
-            Removed entry if found, None otherwise
-        """
-        removed = None
-        was_scouting = False
-
-        async with self._queue_lock:
-            # First try exact encounter_id match
-            if encounter_id:
-                for key, entry in list(self._entries.items()):
-                    if entry.encounter_id == encounter_id and not entry.is_removed:
-                        removed = self._remove_entry(key)
-                        if removed:
-                            was_scouting = removed.is_scouting
-                        break
-
-            # Then try coordinate proximity match (fallback) - requires pokemon_id match
-            if not removed and pokemon_id is not None:
-                for key, entry in list(self._entries.items()):
-                    if entry.is_removed:
-                        continue
-                    # Must match pokemon_id
-                    if entry.pokemon_id != pokemon_id:
-                        continue
-                    # Form match: if form provided, must match
-                    if form is not None and entry.form != form:
-                        continue
-                    if is_within_distance(
-                        entry.lat, entry.lon, lat, lon, COORDINATE_MATCH_THRESHOLD_METERS
-                    ):
-                        removed = self._remove_entry(key)
-                        if removed:
-                            was_scouting = removed.is_scouting
-                        break
-
-        # Release semaphore outside the lock if entry was scouting
-        if was_scouting:
-            self._scout_semaphore.release()
-
-        return removed
+            return removed
 
     async def remove_by_cell_match(
         self, pokemon_id: int, form: Optional[int], s2_cell_id: str
@@ -284,8 +270,8 @@ class IVQueueManager:
                 # Must match pokemon_id
                 if entry.pokemon_id != pokemon_id:
                     continue
-                # Form matching: if incoming form is not None, must match
-                if form is not None and entry.form != form:
+                # Form matching: if both form values are present, must match
+                if form is not None and entry.form is not None and form != entry.form:
                     continue
                 # Must be scouting or scouted (not just pending)
                 if not entry.is_scouting and not entry.was_scouted:

@@ -84,18 +84,6 @@ class PokemonData:
 def parse_pokemon_data(raw: Dict[str, Any]) -> Optional[PokemonData]:
     """
     Parse raw webhook payload into PokemonData.
-
-    Expected fields from Golbat:
-    - pokemon_id: int
-    - form: int (optional)
-    - latitude: float
-    - longitude: float
-    - spawnpoint_id: str (optional)
-    - individual_attack: int (optional, None if not scanned)
-    - individual_defense: int (optional)
-    - individual_stamina: int (optional)
-    - encounter_id: str
-    - disappear_time: int (unix timestamp)
     """
     try:
         pokemon_id = raw.get("pokemon_id")
@@ -107,6 +95,11 @@ def parse_pokemon_data(raw: Dict[str, Any]) -> Optional[PokemonData]:
             logger.debug(f"Missing required Pokemon fields: {raw.keys()}")
             return None
 
+        # Ensure encounter_id is always a string for consistent matching
+        encounter_id = raw.get("encounter_id")
+        if encounter_id is not None:
+            encounter_id = str(encounter_id)
+
         return PokemonData(
             pokemon_id=int(pokemon_id),
             form=raw.get("form"),
@@ -116,14 +109,14 @@ def parse_pokemon_data(raw: Dict[str, Any]) -> Optional[PokemonData]:
             individual_attack=raw.get("individual_attack"),
             individual_defense=raw.get("individual_defense"),
             individual_stamina=raw.get("individual_stamina"),
-            encounter_id=raw.get("encounter_id"),
+            encounter_id=encounter_id,
             disappear_time=raw.get("disappear_time"),
             seen_type=raw.get("seen_type", "wild"),
         )
     except (ValueError, TypeError) as e:
         logger.warning(f"Error parsing Pokemon data: {e}")
         return None
-
+        
 
 def is_in_ivlist(pokemon: PokemonData) -> Tuple[bool, Optional[int]]:
     """
@@ -378,31 +371,18 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
 async def filter_iv_pokemon(pokemon: PokemonData) -> None:
     """
     Filter for Pokemon WITH IV data.
-
     Checks:
     1. Pokemon HAS IV data - already ensured by caller
-    2. Pokemon matches celllist, ivlist, OR was queued via auto_rarity
-    3. Coordinates inside Koji geofences (if FILTER_WITH_KOJI is enabled)
-    4. For nearby_cell: Match by s2_cell_id + pokemon_id
-       For wild/nearby_stop: Match by encounter_id OR coordinates (70m proximity)
-
-    If all pass: Log success, remove from queue
+    2. Coordinates inside Koji geofences (if FILTER_WITH_KOJI is enabled)
+    3. Match against queue for removal
+    If matched: Log success, remove from queue
     """
-    # Check 2: Match celllist or ivlist
-    # When auto_rarity is enabled, we also need to match Pokemon that were queued via auto_rarity
-    # (which are NOT in ivlist/celllist). We'll check the queue directly for those.
-    in_vip_list = is_in_any_list(pokemon)
-    if not in_vip_list and not AppConfig.auto_rarity_enabled:
-        # Not in VIP list and auto_rarity disabled = skip
-        return
+    # Geofence check (already done globally)
+    area = pokemon.area or "GLOBAL"
 
-    # Check 3: Geofence check (already done globally)
-    area = pokemon.area or "GLOBAL" 
-
-    # Check 4: Match against removal
+    # Match against queue for removal
     queue = await IVQueueManager.get_instance()
     removed: Optional[QueueEntry] = None
-
     removed = await queue.remove_by_match(
         encounter_id=pokemon.encounter_id,
         lat=pokemon.latitude,
@@ -443,9 +423,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
                 f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
                 f"({pokemon.iv_percent}%)"
             )
-        # Log updated queue status
-        queue.log_queue_status()
-
+            
 
 async def process_census_pokemon(pokemon: PokemonData) -> None:
     """
