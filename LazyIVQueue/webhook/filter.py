@@ -384,9 +384,11 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
     """
     # Geofence check (already done globally)
     area = pokemon.area or "GLOBAL"
-
     # Match against queue for removal
     queue = await IVQueueManager.get_instance()
+    if pokemon.encounter_id:
+        queue.record_completed_encounter(pokemon.encounter_id)
+
     removed: Optional[QueueEntry] = None
     removed = await queue.remove_by_match(
         encounter_id=pokemon.encounter_id,

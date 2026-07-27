@@ -118,8 +118,12 @@ class IVQueueManager:
         self._wild_early_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
         self._timeouts_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
 
+        # Completed encounters cache (encounter_id -> timestamp)
+        self._completed_encounters: Dict[str, float] = {}
+
         # Session start time for IV/hour rate calculation
         self._session_start: float = time.time()
+        
 
     @classmethod
     async def get_instance(cls) -> IVQueueManager:
@@ -158,7 +162,26 @@ class IVQueueManager:
             logger.info(
                 f"Scout concurrency updated: {old_concurrency} -> {new_concurrency}"
             )
+    
+    def record_completed_encounter(self, encounter_id: Optional[str]) -> None:
+        """Mark an encounter ID as completed (IV received or scouted)."""
+        norm_eid = normalize_encounter_id(encounter_id)
+        if norm_eid:
+            self._completed_encounters[norm_eid] = time.time()
 
+    def is_encounter_completed(self, encounter_id: Optional[str]) -> bool:
+        """Check if an encounter ID was already completed/processed."""
+        norm_eid = normalize_encounter_id(encounter_id)
+        if not norm_eid:
+            return False
+        ts = self._completed_encounters.get(norm_eid)
+        if ts is None:
+            return False
+        if time.time() - ts > 900:  # 15 minutes TTL
+            del self._completed_encounters[norm_eid]
+            return False
+        return True
+        
     async def add(self, entry: QueueEntry) -> bool:
         """
         Add entry to queue.
@@ -170,11 +193,14 @@ class IVQueueManager:
             True if added, False if duplicate
         """
         async with self._queue_lock:
-            key = entry.unique_key
+            # Check if encounter has already been completed or received IV
+            if self.is_encounter_completed(entry.encounter_id):
+                logger.debug(f"Skipping re-queue for already completed encounter: {entry.encounter_id}")
+                return False
 
+            key = entry.unique_key
             # Check for duplicate
             if key in self._entries:
-                logger.debug(f"Duplicate entry skipped: {key}")
                 return False
 
             # Add to heap and lookup dict
@@ -255,6 +281,11 @@ class IVQueueManager:
                     if is_within_distance(entry.lat, entry.lon, lat, lon, threshold):
                         removed = self._remove_entry(key)
                         break
+
+        if removed:
+            self.record_completed_encounter(removed.encounter_id)
+            if encounter_id:
+                self.record_completed_encounter(encounter_id)
 
         # Release semaphore outside the lock if entry was scouting
         if removed and removed.is_scouting and self._scout_semaphore:
