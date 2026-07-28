@@ -144,6 +144,7 @@ class IVQueueManager:
         self._high_util_start_time: Optional[float] = None
         self._low_util_start_time: Optional[float] = None
         self._last_utilization_pct: float = 0.0
+        self._was_calibrating: bool = False
         
 
     @classmethod
@@ -540,6 +541,22 @@ class IVQueueManager:
         if rarity_calibrating and self._current_scout_percent > baseline_pct:
             self._current_scout_percent = baseline_pct
             self._tuning_status = "NORMAL"
+
+        # On the calibration -> ready transition, restart the utilization timers and step
+        # cooldown so at least one full baseline tuning interval passes before any boost.
+        # (Workers sit idle during calibration, so the low-utilization timer would
+        # otherwise already read as "sustained" the moment calibration completes.)
+        if rarity_calibrating:
+            self._was_calibrating = True
+        elif self._was_calibrating:
+            self._was_calibrating = False
+            self._high_util_start_time = None
+            self._low_util_start_time = None
+            self._last_concurrency_adjustment_time = time.time()
+            logger.opt(colors=True).info(
+                f"<green>[Self-Tuning]</green> Calibration complete. Holding baseline scout threshold "
+                f"({baseline_pct:.4f}%) for at least one tuning interval ({AppConfig.tuning_interval_seconds}s) before tuning."
+            )
 
         # Track dynamic baseline updates
         last_base = getattr(self, "_last_baseline_pct", None)

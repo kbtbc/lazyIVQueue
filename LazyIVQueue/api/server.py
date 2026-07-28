@@ -380,11 +380,6 @@ class LazyIVQueueServer:
                         "too_many_workers_percent", "too_few_workers_percent"]:
                 if key in data:
                     full_config["self_tuning"][key] = data[key]
-
-            # Accept legacy key name from older clients
-            if "recovery_step_seconds" in data and "tuning_interval_seconds" not in data:
-                full_config["self_tuning"]["tuning_interval_seconds"] = data["recovery_step_seconds"]
-            full_config["self_tuning"].pop("recovery_step_seconds", None)
             
             with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                 json.dump(full_config, f, indent=4)
