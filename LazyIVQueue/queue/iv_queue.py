@@ -209,6 +209,16 @@ class IVQueueManager:
                 logger.debug(f"Skipping re-queue for already completed encounter: {entry.encounter_id}")
                 return False
 
+            # When PAUSED (Circuit Breaker or Manual Pause), reject ALL incoming entries from webhooks completely to allow pending queue to drain to 0
+            if self._tuning_status in ("PAUSED", "MANUALLY_PAUSED"):
+                logger.debug(f"Rejecting incoming queue entry during {self._tuning_status}: {entry.pokemon_display}")
+                return False
+
+            # When THROTTLED (Stage 1 Backlog Relief), reject incoming background auto-rarity entries to protect VIP queue
+            if self._tuning_status == "THROTTLED" and AppConfig.suppress_auto_rarity_on_backlog and (entry.list_type or "").startswith("auto_rarity"):
+                logger.debug(f"Shedding incoming auto-rarity entry during {self._tuning_status}: {entry.pokemon_display}")
+                return False
+
             key = entry.unique_key
             # Check for existing entry
             if key in self._entries:
@@ -429,6 +439,22 @@ class IVQueueManager:
         unscouted = sum(1 for e in self._entries.values() if not e.is_scouting and not e.was_scouted and not e.is_removed and e.eligible_at <= now)
         return unscouted, awaiting_iv
 
+    def _shed_auto_rarity_backlog(self) -> int:
+        """Evict unscouted auto-rarity entries during Stage 1 load shedding."""
+        shed_count = 0
+        for key, entry in list(self._entries.items()):
+            if entry.is_removed or entry.is_scouting or entry.was_scouted:
+                continue
+            if (entry.list_type or "").startswith("auto_rarity"):
+                entry.is_removed = True
+                del self._entries[key]
+                shed_count += 1
+        if shed_count > 0:
+            logger.opt(colors=True).info(
+                f"<yellow>[Self-Tuning]</yellow> Shed {shed_count} pending auto-rarity background scouts to protect VIP queue."
+            )
+        return shed_count
+
     async def _evaluate_self_tuning(self) -> None:
         """
         Evaluate queue backlog and error metrics to auto-tune dispatching & concurrency.
@@ -460,7 +486,7 @@ class IVQueueManager:
             if time_condition and pending_condition and awaiting_condition:
                 logger.opt(colors=True).info(
                     f"<green>[Self-Tuning]</green> CIRCUIT BREAKER RELEASED: Pause duration ({pause_elapsed:.1f}s >= {AppConfig.pending_pause_duration}s), "
-                    f"Pending=0, Awaiting IV drained ({current_awaiting_iv} <= {target_awaiting_iv}). "
+                    f"Pending queue drained (0), and Awaiting IV drained ({current_awaiting_iv} <= {target_awaiting_iv}). "
                     f"Transitioning to RECOVERING."
                 )
                 self._tuning_status = "RECOVERING"
@@ -481,13 +507,13 @@ class IVQueueManager:
             if backlog_elapsed >= AppConfig.hard_pause_backlog_seconds:
                 self._tuning_status = "PAUSED"
                 self._pause_start_time = now
-                self._baseline_awaiting_iv = max(current_awaiting_iv, self._active_scouts, 1)
+                self._baseline_awaiting_iv = max(self._current_concurrency, AppConfig.max_concurrency, 1)
                 self._total_pauses_triggered += 1
                 self._pause_reason = f"Pending backlog persisted for {backlog_elapsed:.1f}s (hard limit: {AppConfig.hard_pause_backlog_seconds}s)"
                 target = max(1, int(self._baseline_awaiting_iv * (AppConfig.awaiting_iv_drain_percent / 100.0)))
                 logger.opt(colors=True).warning(
                     f"<red>[Self-Tuning]</red> CIRCUIT BREAKER TRIGGERED Stage 2: {self._pause_reason}. "
-                    f"Pausing dispatching for min {AppConfig.pending_pause_duration}s until pending=0 and awaiting IV <= {target}."
+                    f"Pausing dispatching & webhook queueing for min {AppConfig.pending_pause_duration}s until pending=0 and awaiting IV <= {target}."
                 )
 
             # STAGE 1: Throttled / Load Shedding mode (Step down concurrency & shed auto-rarity)
@@ -498,11 +524,14 @@ class IVQueueManager:
                         f"<yellow>[Self-Tuning]</yellow> STAGE 1 BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.pending_backlog_seconds}s). "
                         f"Suppressing auto-rarity background scouts and stepping down concurrency to protect VIP queue."
                     )
+                    if AppConfig.suppress_auto_rarity_on_backlog:
+                        self._shed_auto_rarity_backlog()
 
                 # Step down concurrency periodically if dynamic concurrency is enabled
                 if AppConfig.dynamic_concurrency_enabled and (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
                     if self._current_concurrency > AppConfig.min_concurrency:
-                        new_conc = max(AppConfig.min_concurrency, self._current_concurrency - 1)
+                        step = max(1, int(self._current_concurrency * 0.25))
+                        new_conc = max(AppConfig.min_concurrency, self._current_concurrency - step)
                         logger.opt(colors=True).info(
                             f"<yellow>[Self-Tuning]</yellow> Stepping down concurrency: {self._current_concurrency} -> {new_conc}"
                         )
@@ -520,7 +549,8 @@ class IVQueueManager:
             if self._tuning_status in ("THROTTLED", "BACKLOG_WARNING", "RECOVERING"):
                 if AppConfig.dynamic_concurrency_enabled and (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
                     if self._current_concurrency < AppConfig.max_concurrency:
-                        new_conc = min(AppConfig.max_concurrency, self._current_concurrency + 1)
+                        step = max(1, int((AppConfig.max_concurrency - AppConfig.min_concurrency) / 4))
+                        new_conc = min(AppConfig.max_concurrency, self._current_concurrency + max(1, step))
                         logger.opt(colors=True).info(
                             f"<green>[Self-Tuning]</green> Backlog cleared. Ramping up concurrency: {self._current_concurrency} -> {new_conc}"
                         )
@@ -606,7 +636,8 @@ class IVQueueManager:
         pause_elapsed = round(now - self._pause_start_time, 1) if self._pause_start_time else 0.0
         pause_remaining = max(0.0, round(AppConfig.pending_pause_duration - pause_elapsed, 1)) if self._pause_start_time else 0.0
         
-        target_awaiting_iv = max(1, int(self._baseline_awaiting_iv * (AppConfig.awaiting_iv_drain_percent / 100.0))) if self._baseline_awaiting_iv > 0 else 0
+        base_iv = self._baseline_awaiting_iv if self._baseline_awaiting_iv > 0 else max(self._current_concurrency, AppConfig.max_concurrency, 1)
+        target_awaiting_iv = max(1, int(base_iv * (AppConfig.awaiting_iv_drain_percent / 100.0)))
         
         failed_scouts = self._recent_scout_outcomes.count(False)
         total_recent = max(1, len(self._recent_scout_outcomes))
@@ -627,7 +658,7 @@ class IVQueueManager:
             "pending_backlog_elapsed_sec": backlog_elapsed,
             "pause_elapsed_sec": pause_elapsed,
             "pause_remaining_sec": pause_remaining,
-            "baseline_awaiting_iv": self._baseline_awaiting_iv,
+            "baseline_awaiting_iv": base_iv,
             "target_awaiting_iv": target_awaiting_iv,
             "current_awaiting_iv": awaiting_iv_count,
             "pause_reason": self._pause_reason,
