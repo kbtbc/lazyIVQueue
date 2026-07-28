@@ -529,3 +529,21 @@ class RarityManager:
                 pass
 
         logger.info("RarityManager stopped")
+
+    async def reset(self) -> Dict[str, Any]:
+        """
+        Reset auto-rarity calibration state, species trackers, and rankings.
+        """
+        async with self._manager_lock:
+            self._actives.clear()
+            self._rankings.clear()
+            self._rank_cache.clear()
+            self._global_species_rankings.clear()
+            self._global_rank_cache.clear()
+            self._global_pct_cache.clear()
+            self._status = "CALIBRATING"
+            self._start_time = time.time()
+            self._total_spawns_tracked = 0
+            self._last_ranking_time = None
+            logger.info("RarityManager reset to CALIBRATING state.")
+            return {"status": "ok", "message": "Rarity manager reset"}

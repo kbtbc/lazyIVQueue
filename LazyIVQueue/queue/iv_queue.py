@@ -199,8 +199,21 @@ class IVQueueManager:
                 return False
 
             key = entry.unique_key
-            # Check for duplicate
+            # Check for existing entry
             if key in self._entries:
+                existing = self._entries[key]
+                if not existing.is_removed:
+                    # Update coordinates and identifiers when refined webhook arrives (e.g., nearby_stop -> wild)
+                    if entry.lat and entry.lon:
+                        existing.lat = entry.lat
+                        existing.lon = entry.lon
+                    if entry.spawnpoint_id:
+                        existing.spawnpoint_id = entry.spawnpoint_id
+                    if entry.seen_type:
+                        existing.seen_type = entry.seen_type
+                    # Refresh scout timer when worker converts nearby_stop/cell into wild spawn
+                    if existing.is_scouting:
+                        existing.scout_started_at = time.time()
                 return False
 
             # Add to heap and lookup dict
@@ -718,7 +731,6 @@ class IVQueueManager:
             Number of entries removed
         """
         current_time = time.time()
-        timeout_threshold = AppConfig.timeout_iv
         removed_count = 0
         semaphores_to_release = 0
         timed_out_encounter_ids: list[str] = []
@@ -728,6 +740,8 @@ class IVQueueManager:
                 # Check if scout started and exceeded timeout
                 if entry.scout_started_at:
                     elapsed = current_time - entry.scout_started_at
+                    # nearby_stop and nearby_cell scouting require worker travel/grid scan time (allow at least 300s)
+                    timeout_threshold = max(AppConfig.timeout_iv, 300) if entry.seen_type in ("nearby_stop", "nearby_cell") else AppConfig.timeout_iv
                     if elapsed > timeout_threshold:
                         logger.opt(colors=True).debug(
                             f"<red>[x]</red> Scout timeout: {entry.pokemon_display} in {entry.area} "
@@ -765,6 +779,39 @@ class IVQueueManager:
             )
 
         return removed_count
+
+    async def reset_queue_and_stats(self) -> Dict[str, Any]:
+        """
+        Reset queue entries, active scouts, semaphore, completed encounters,
+        and all statistics counters.
+        """
+        async with self._queue_lock:
+            queue_count = len(self._entries)
+            self._heap.clear()
+            self._entries.clear()
+            self._active_scouts = 0
+            if self._scout_semaphore and self._current_concurrency > 0:
+                self._scout_semaphore = asyncio.Semaphore(self._current_concurrency)
+
+            # Reset stats counters
+            self._queued_by_type = {t: 0 for t in self._seen_types}
+            self._matches_by_type = {t: 0 for t in self._seen_types}
+            self._early_iv_by_type = {t: 0 for t in self._seen_types}
+            self._wild_early_by_type = {t: 0 for t in self._seen_types}
+            self._timeouts_by_type = {t: 0 for t in self._seen_types}
+
+            self._queued_by_group = {"vip": {}, "rarity": {}}
+            self._queued_by_pokemon = {t: {} for t in self._seen_types}
+            self._matches_by_pokemon = {t: {} for t in self._seen_types}
+            self._early_iv_by_pokemon = {t: {} for t in self._seen_types}
+            self._wild_early_by_pokemon = {t: {} for t in self._seen_types}
+            self._timeouts_by_pokemon = {t: {} for t in self._seen_types}
+
+            self._completed_encounters.clear()
+            self._session_start = time.time()
+
+            logger.info(f"Queue and stats reset via API. Cleared {queue_count} pending/scouting entries.")
+            return {"cleared_entries": queue_count, "status": "ok"}
         
     async def cleanup_stale_heap_entries(self) -> int:
         """

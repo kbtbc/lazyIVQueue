@@ -311,6 +311,26 @@ class LazyIVQueueServer:
             logger.error(f"Error reloading config: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
+    async def handle_reset(self, request: web.Request) -> web.Response:
+        """Reset queue entries, statistics, and rarity calibration state."""
+        try:
+            queue = await IVQueueManager.get_instance()
+            queue_res = await queue.reset_queue_and_stats()
+
+            rarity = await RarityManager.get_instance()
+            rarity_res = await rarity.reset()
+
+            logger.warning("Queue, stats, and rarity manager manually reset via dashboard")
+            return web.json_response({
+                "status": "success",
+                "message": "Queue, stats, and rarity calibration reset successfully",
+                "queue": queue_res,
+                "rarity": rarity_res
+            })
+        except Exception as e:
+            logger.error(f"Error resetting queue: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
     async def handle_dashboard(self, request: web.Request) -> web.Response:
         """Serve a simple HTML dashboard."""
         import os
@@ -335,7 +355,7 @@ class LazyIVQueueServer:
         self._app.router.add_get("/config", self.handle_config)
         self._app.router.add_get("/config/raw", self.handle_config_raw_get)
         self._app.router.add_post("/config/raw", self.handle_config_raw_post)
-
+        self._app.router.add_post("/reset", self.handle_reset)
         self._app.router.add_post("/reload", self.handle_reload)
 
         self._runner = web.AppRunner(self._app)
