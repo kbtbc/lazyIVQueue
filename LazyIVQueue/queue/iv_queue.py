@@ -438,6 +438,22 @@ class IVQueueManager:
             )
         return shed_count
 
+    def _clear_unscouted_backlog(self) -> int:
+        """Purge all unscouted pending and held entries during Stage 2 Circuit Breaker emergency stop."""
+        cleared_count = 0
+        for key, entry in list(self._entries.items()):
+            if entry.is_removed or entry.is_scouting or entry.was_scouted:
+                continue
+            entry.is_removed = True
+            del self._entries[key]
+            cleared_count += 1
+        self._heap.clear()
+        if cleared_count > 0:
+            logger.opt(colors=True).warning(
+                f"<red>[Self-Tuning]</red> CIRCUIT BREAKER: Purged {cleared_count} pending/held backlog entries."
+            )
+        return cleared_count
+
     async def _evaluate_self_tuning(self) -> None:
         """
         Evaluate queue backlog and error metrics to auto-tune dispatching & concurrency.
@@ -470,14 +486,15 @@ class IVQueueManager:
                 logger.opt(colors=True).info(
                     f"<green>[Self-Tuning]</green> CIRCUIT BREAKER RELEASED: Pause duration ({pause_elapsed:.1f}s >= {AppConfig.pending_pause_duration}s), "
                     f"Pending queue drained (0), and Awaiting IV drained ({current_awaiting_iv} <= {target_awaiting_iv}). "
-                    f"Transitioning to RECOVERING."
+                    f"Queue fully recovered to NORMAL state."
                 )
-                self._tuning_status = "RECOVERING"
+                self._tuning_status = "NORMAL"
                 self._pause_start_time = None
                 self._pending_backlog_start_time = None
                 self._pause_reason = ""
-                if AppConfig.dynamic_concurrency_enabled and self._current_concurrency > AppConfig.min_concurrency:
-                    await self.update_concurrency(AppConfig.min_concurrency)
+                if AppConfig.dynamic_concurrency_enabled and self._current_concurrency < AppConfig.max_concurrency:
+                    await self.update_concurrency(AppConfig.max_concurrency)
+                    self._last_concurrency_adjustment_time = now
             return
 
         # Monitor pending backlog buildup
@@ -493,6 +510,7 @@ class IVQueueManager:
                 self._baseline_awaiting_iv = max(self._current_concurrency, AppConfig.max_concurrency, 1)
                 self._total_pauses_triggered += 1
                 self._pause_reason = f"Pending backlog persisted for {backlog_elapsed:.1f}s (hard limit: {AppConfig.hard_pause_backlog_seconds}s)"
+                self._clear_unscouted_backlog()
                 target = max(1, int(self._baseline_awaiting_iv * (AppConfig.awaiting_iv_drain_percent / 100.0)))
                 logger.opt(colors=True).warning(
                     f"<red>[Self-Tuning]</red> CIRCUIT BREAKER TRIGGERED Stage 2: {self._pause_reason}. "
@@ -526,26 +544,15 @@ class IVQueueManager:
                     self._tuning_status = "BACKLOG_WARNING"
 
         else:
-            # Pending count is 0: clear backlog timer and gradually recover
+            # Pending count is 0: clear backlog timer and restore status/concurrency
             self._pending_backlog_start_time = None
 
             if self._tuning_status in ("THROTTLED", "BACKLOG_WARNING", "RECOVERING"):
-                if AppConfig.dynamic_concurrency_enabled and (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
-                    if self._current_concurrency < AppConfig.max_concurrency:
-                        step = max(1, int((AppConfig.max_concurrency - AppConfig.min_concurrency) / 4))
-                        new_conc = min(AppConfig.max_concurrency, self._current_concurrency + max(1, step))
-                        logger.opt(colors=True).info(
-                            f"<green>[Self-Tuning]</green> Backlog cleared. Ramping up concurrency: {self._current_concurrency} -> {new_conc}"
-                        )
-                        await self.update_concurrency(new_conc)
-                        self._last_concurrency_adjustment_time = now
-                    
-                    if self._current_concurrency >= AppConfig.max_concurrency:
-                        self._tuning_status = "NORMAL"
-                        logger.opt(colors=True).info("<green>[Self-Tuning]</green> Queue fully recovered to NORMAL state.")
-                else:
-                    if not AppConfig.dynamic_concurrency_enabled:
-                        self._tuning_status = "NORMAL"
+                if AppConfig.dynamic_concurrency_enabled and self._current_concurrency < AppConfig.max_concurrency:
+                    await self.update_concurrency(AppConfig.max_concurrency)
+                    self._last_concurrency_adjustment_time = now
+                self._tuning_status = "NORMAL"
+                logger.opt(colors=True).info("<green>[Self-Tuning]</green> Queue backlog cleared. Concurrency restored and status returned to NORMAL.")
 
         # Check API Error Rates for Throttling
         if AppConfig.dynamic_concurrency_enabled and self._tuning_status not in ("PAUSED", "MANUALLY_PAUSED"):
