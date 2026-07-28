@@ -86,7 +86,7 @@ concurrency_scout: int = scout_config.get("concurrency", 5)
 self_tuning_config = config.get("self_tuning", {})
 self_tuning_enabled: bool = self_tuning_config.get("enabled", True)
 pending_backlog_seconds: int = self_tuning_config.get("pending_backlog_seconds", 45)
-hard_pause_backlog_seconds: int = self_tuning_config.get("hard_pause_backlog_seconds", 90)
+hard_pause_backlog_seconds: int = self_tuning_config.get("hard_pause_backlog_seconds", 180)
 pending_pause_duration: int = self_tuning_config.get("pending_pause_duration", 60)
 awaiting_iv_drain_percent: int = self_tuning_config.get("awaiting_iv_drain_percent", 50)
 suppress_auto_rarity_on_backlog: bool = self_tuning_config.get("suppress_auto_rarity_on_backlog", True)
@@ -121,8 +121,8 @@ def reload_config() -> Dict[str, any]:
     global poracle_config, poracle_ultra_rare, poracle_very_rare, poracle_rare, poracle_uncommon
     global concurrency_scout, timeout_iv, wild_scout_delay
     global geofence_expire_cache_seconds, geofence_refresh_cache_seconds
-    global self_tuning_config, self_tuning_enabled, pending_backlog_seconds, pending_pause_duration
-    global awaiting_iv_drain_percent, dynamic_concurrency_enabled, min_concurrency, max_concurrency
+    global self_tuning_config, self_tuning_enabled, pending_backlog_seconds, hard_pause_backlog_seconds, pending_pause_duration
+    global awaiting_iv_drain_percent, suppress_auto_rarity_on_backlog, dynamic_concurrency_enabled, min_concurrency, max_concurrency
     global error_threshold_percent, recovery_step_seconds
 
     changes = {}
@@ -234,8 +234,10 @@ def reload_config() -> Dict[str, any]:
         self_tuning_config = new_tuning
         self_tuning_enabled = self_tuning_config.get("enabled", True)
         pending_backlog_seconds = self_tuning_config.get("pending_backlog_seconds", 45)
+        hard_pause_backlog_seconds = self_tuning_config.get("hard_pause_backlog_seconds", 180)
         pending_pause_duration = self_tuning_config.get("pending_pause_duration", 60)
         awaiting_iv_drain_percent = self_tuning_config.get("awaiting_iv_drain_percent", 50)
+        suppress_auto_rarity_on_backlog = self_tuning_config.get("suppress_auto_rarity_on_backlog", True)
         dynamic_concurrency_enabled = self_tuning_config.get("dynamic_concurrency_enabled", True)
         min_concurrency = self_tuning_config.get("min_concurrency", 1)
         max_concurrency = max(self_tuning_config.get("max_concurrency", concurrency_scout), concurrency_scout)

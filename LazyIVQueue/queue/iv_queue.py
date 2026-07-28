@@ -126,6 +126,7 @@ class IVQueueManager:
 
         # Self-Tuning Queue State
         self._tuning_status: str = "NORMAL"  # NORMAL, BACKLOG_WARNING, PAUSED, RECOVERING, THROTTLED, MANUALLY_PAUSED
+        self._throttled_step: int = 0  # 0 = none, 1 = celllist suppressed, 2 = rarity + celllist suppressed
         self._manual_pause: bool = False
         self._pending_backlog_start_time: Optional[float] = None
         self._pause_start_time: Optional[float] = None
@@ -422,8 +423,24 @@ class IVQueueManager:
         unscouted = sum(1 for e in self._entries.values() if not e.is_scouting and not e.was_scouted and not e.is_removed and e.eligible_at <= now)
         return unscouted, awaiting_iv
 
+    def _shed_celllist_backlog(self) -> int:
+        """Purge unscouted celllist (nearby_cell / 9-point grid) entries during Stage 1 Step 1 load shedding."""
+        shed_count = 0
+        for key, entry in list(self._entries.items()):
+            if entry.is_removed or entry.is_scouting or entry.was_scouted:
+                continue
+            if entry.list_type == "celllist" or entry.seen_type == "nearby_cell":
+                entry.is_removed = True
+                del self._entries[key]
+                shed_count += 1
+        if shed_count > 0:
+            logger.opt(colors=True).info(
+                f"<yellow>[Self-Tuning]</yellow> Shed {shed_count} pending celllist (9-point grid) scouts to protect VIP ivlist and rarity queues."
+            )
+        return shed_count
+
     def _shed_auto_rarity_backlog(self) -> int:
-        """Evict unscouted auto-rarity entries during Stage 1 load shedding."""
+        """Purge unscouted auto-rarity entries during Stage 1 Step 2 load shedding."""
         shed_count = 0
         for key, entry in list(self._entries.items()):
             if entry.is_removed or entry.is_scouting or entry.was_scouted:
@@ -434,7 +451,7 @@ class IVQueueManager:
                 shed_count += 1
         if shed_count > 0:
             logger.opt(colors=True).info(
-                f"<yellow>[Self-Tuning]</yellow> Shed {shed_count} pending auto-rarity background scouts to protect VIP queue."
+                f"<yellow>[Self-Tuning]</yellow> Shed {shed_count} pending auto-rarity background scouts to protect VIP ivlist queue."
             )
         return shed_count
 
@@ -466,6 +483,7 @@ class IVQueueManager:
 
         if not AppConfig.self_tuning_enabled:
             self._tuning_status = "NORMAL"
+            self._throttled_step = 0
             self._pending_backlog_start_time = None
             self._pause_start_time = None
             return
@@ -489,6 +507,7 @@ class IVQueueManager:
                     f"Queue fully recovered to NORMAL state."
                 )
                 self._tuning_status = "NORMAL"
+                self._throttled_step = 0
                 self._pause_start_time = None
                 self._pending_backlog_start_time = None
                 self._pause_reason = ""
@@ -506,6 +525,7 @@ class IVQueueManager:
             # STAGE 2: Hard Circuit Breaker Pause if backlog stays persistent despite Stage 1 load shedding
             if backlog_elapsed >= AppConfig.hard_pause_backlog_seconds:
                 self._tuning_status = "PAUSED"
+                self._throttled_step = 0
                 self._pause_start_time = now
                 self._baseline_awaiting_iv = max(self._current_concurrency, AppConfig.max_concurrency, 1)
                 self._total_pauses_triggered += 1
@@ -517,19 +537,37 @@ class IVQueueManager:
                     f"Pausing dispatching & webhook queueing for min {AppConfig.pending_pause_duration}s until pending=0 and awaiting IV <= {target}."
                 )
 
-            # STAGE 1: Throttled / Load Shedding mode (Step down concurrency & shed auto-rarity)
+            # STAGE 1: Throttled / Load Shedding mode
+            # Step 1: Suppress celllist (9-point grid scouts) & step down concurrency, keep VIP ivlist and rarity
+            # Step 2: On subsequent step-down, add suppression/removal of auto_rarity
             elif backlog_elapsed >= AppConfig.pending_backlog_seconds:
                 if self._tuning_status != "THROTTLED":
                     self._tuning_status = "THROTTLED"
+                    self._throttled_step = 1
                     logger.opt(colors=True).warning(
-                        f"<yellow>[Self-Tuning]</yellow> STAGE 1 BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.pending_backlog_seconds}s). "
-                        f"Suppressing auto-rarity background scouts and stepping down concurrency to protect VIP queue."
+                        f"<yellow>[Self-Tuning]</yellow> STAGE 1 (Step 1) BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.pending_backlog_seconds}s). "
+                        f"Suppressing celllist (9-point grid scouts) and stepping down concurrency to protect VIP ivlist and rarity queues."
                     )
-                    if AppConfig.suppress_auto_rarity_on_backlog:
+                    self._shed_celllist_backlog()
+                    if AppConfig.dynamic_concurrency_enabled and self._current_concurrency > AppConfig.min_concurrency:
+                        step = max(1, int(self._current_concurrency * 0.25))
+                        new_conc = max(AppConfig.min_concurrency, self._current_concurrency - step)
+                        logger.opt(colors=True).info(
+                            f"<yellow>[Self-Tuning]</yellow> Stepping down concurrency: {self._current_concurrency} -> {new_conc}"
+                        )
+                        await self.update_concurrency(new_conc)
+                        self._last_concurrency_adjustment_time = now
+
+                # Step down concurrency & escalate to Step 2 (removing auto-rarity) if backlog persists
+                elif AppConfig.dynamic_concurrency_enabled and (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
+                    if self._throttled_step < 2:
+                        self._throttled_step = 2
+                        logger.opt(colors=True).warning(
+                            f"<yellow>[Self-Tuning]</yellow> STAGE 1 (Step 2) BACKLOG RELIEF: Backlog persisting. "
+                            f"Suppressing auto-rarity background scouts in addition to celllist. Only VIP ivlist will be scouted."
+                        )
                         self._shed_auto_rarity_backlog()
 
-                # Step down concurrency periodically if dynamic concurrency is enabled
-                if AppConfig.dynamic_concurrency_enabled and (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
                     if self._current_concurrency > AppConfig.min_concurrency:
                         step = max(1, int(self._current_concurrency * 0.25))
                         new_conc = max(AppConfig.min_concurrency, self._current_concurrency - step)
@@ -552,6 +590,7 @@ class IVQueueManager:
                     await self.update_concurrency(AppConfig.max_concurrency)
                     self._last_concurrency_adjustment_time = now
                 self._tuning_status = "NORMAL"
+                self._throttled_step = 0
                 logger.opt(colors=True).info("<green>[Self-Tuning]</green> Queue backlog cleared. Concurrency restored and status returned to NORMAL.")
 
         # Check API Error Rates for Throttling
@@ -598,6 +637,7 @@ class IVQueueManager:
         async with self._queue_lock:
             self._manual_pause = False
             self._tuning_status = "NORMAL"
+            self._throttled_step = 0
             self._pending_backlog_start_time = None
             self._pause_start_time = None
             self._pause_reason = ""
@@ -615,6 +655,7 @@ class IVQueueManager:
             logger.info(
                 f"Self-Tuning config synchronized: enabled={AppConfig.self_tuning_enabled}, "
                 f"backlog_sec={AppConfig.pending_backlog_seconds}s, "
+                f"hard_pause_sec={AppConfig.hard_pause_backlog_seconds}s, "
                 f"pause_dur={AppConfig.pending_pause_duration}s, "
                 f"drain_pct={AppConfig.awaiting_iv_drain_percent}%"
             )
@@ -636,11 +677,13 @@ class IVQueueManager:
         return {
             "enabled": AppConfig.self_tuning_enabled,
             "status": self._tuning_status,
+            "throttled_step": self._throttled_step,
             "manual_pause": self._manual_pause,
             "current_concurrency": self._current_concurrency,
             "min_concurrency": AppConfig.min_concurrency,
             "max_concurrency": AppConfig.max_concurrency,
             "pending_backlog_seconds_config": AppConfig.pending_backlog_seconds,
+            "hard_pause_backlog_seconds_config": AppConfig.hard_pause_backlog_seconds,
             "pending_pause_duration_config": AppConfig.pending_pause_duration,
             "awaiting_iv_drain_percent_config": AppConfig.awaiting_iv_drain_percent,
             "dynamic_concurrency_enabled": AppConfig.dynamic_concurrency_enabled,
@@ -669,7 +712,6 @@ class IVQueueManager:
         if self._tuning_status in ("PAUSED", "MANUALLY_PAUSED"):
             return None
 
-        is_vip_only = (self._tuning_status == "THROTTLED" and AppConfig.suppress_auto_rarity_on_backlog)
         now = time.time()
 
         async with self._queue_lock:
@@ -683,8 +725,11 @@ class IVQueueManager:
                     return False
                 if e.eligible_at > now:
                     return False
-                if is_vip_only and (e.list_type or "").startswith("auto_rarity"):
-                    return False
+                if self._tuning_status == "THROTTLED":
+                    if self._throttled_step >= 1 and (e.list_type == "celllist" or e.seen_type == "nearby_cell"):
+                        return False
+                    if self._throttled_step >= 2 and (e.list_type or "").startswith("auto_rarity"):
+                        return False
                 return True
 
             # Clean up heap dead entries

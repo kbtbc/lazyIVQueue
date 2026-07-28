@@ -108,10 +108,10 @@ class LazyIVQueueApp:
         logger.info("-" * 60)
 
     async def _cleanup_loop(self) -> None:
-        """Periodically clean up expired and timed-out queue entries."""
+        """Periodically clean up expired and timed-out queue entries and log status."""
         while True:
             try:
-                await asyncio.sleep(30)  # Check every 30 seconds
+                await asyncio.sleep(15)  # Check every 15 seconds
                 if self._queue_manager:
                     # Clean up expired entries (disappear_time passed)
                     await self._queue_manager.cleanup_expired()
@@ -119,6 +119,8 @@ class LazyIVQueueApp:
                     await self._queue_manager.cleanup_timed_out_scouts()
                     # Prune stale heap entries (lazy deletion cleanup)
                     await self._queue_manager.cleanup_stale_heap_entries()
+                    # Log status output continuously
+                    self._queue_manager.log_queue_status()
             except asyncio.CancelledError:
                 break
             except Exception as e:

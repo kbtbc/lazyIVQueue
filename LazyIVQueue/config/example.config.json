@@ -47,6 +47,7 @@
     "self_tuning": {
         "enabled": true,
         "pending_backlog_seconds": 45,
+        "hard_pause_backlog_seconds": 180,
         "pending_pause_duration": 60,
         "awaiting_iv_drain_percent": 50,
         "dynamic_concurrency_enabled": true,

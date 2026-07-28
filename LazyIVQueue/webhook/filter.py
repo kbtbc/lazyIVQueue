@@ -342,10 +342,22 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
     # Check 3: Geofence check (already done globally)
     area = pokemon.area or "GLOBAL"
 
-    # All checks passed - add to queue
+    # All checks passed - check self-tuning circuit breaker before queueing
+    queue = await IVQueueManager.get_instance()
+    if queue._tuning_status in ("PAUSED", "MANUALLY_PAUSED") or queue._manual_pause:
+        logger.trace(f"Queue status {queue._tuning_status}: skipping incoming webhook for {pokemon.pokemon_display}")
+        return
+
+    if queue._tuning_status == "THROTTLED":
+        if queue._throttled_step >= 1 and (seen_type == "nearby_cell" or list_type == "celllist"):
+            logger.trace(f"Stage 1 Step {queue._throttled_step} throttled: suppressing celllist webhook for {pokemon.pokemon_display}")
+            return
+        if queue._throttled_step >= 2 and (list_type or "").startswith("auto_rarity"):
+            logger.trace(f"Stage 1 Step {queue._throttled_step} throttled: suppressing auto_rarity webhook for {pokemon.pokemon_display}")
+            return
+
     # Store the full list_type (including rarity tier/rank detail) so the
     # dashboard queue preview can show which tier an entry was queued under
-    queue = await IVQueueManager.get_instance()
     default_disappear_time = int(time_module.time()) + 600
     entry = QueueEntry(
         pokemon_id=pokemon.pokemon_id,
