@@ -5,7 +5,7 @@ import asyncio
 import heapq
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
@@ -137,6 +137,13 @@ class IVQueueManager:
         self._total_pauses_triggered: int = 0
         self._recent_scout_outcomes: List[bool] = []
         self._last_concurrency_adjustment_time: float = time.time()
+
+        # Worker utilization dead-band tracking: when awaiting_iv utilization stays
+        # above too_many_workers_percent (or below too_few_workers_percent) continuously
+        # for tuning_interval_seconds, the scout percent steps down (or up).
+        self._high_util_start_time: Optional[float] = None
+        self._low_util_start_time: Optional[float] = None
+        self._last_utilization_pct: float = 0.0
         
 
     @classmethod
@@ -211,8 +218,10 @@ class IVQueueManager:
                 logger.debug(f"Rejecting incoming queue entry during {self._tuning_status}: {entry.pokemon_display}")
                 return False
 
-            # When THROTTLED (Stage 1 Backlog Relief), reject incoming background auto-rarity entries to protect VIP queue
-            if self._tuning_status == "THROTTLED" and AppConfig.suppress_auto_rarity_on_backlog and (entry.list_type or "").startswith("auto_rarity"):
+            # When THROTTLED by a real backlog (Stage 1 Backlog Relief, _throttled_step >= 1), reject incoming
+            # background auto-rarity entries to protect VIP queue. Utilization-driven throttling (_throttled_step 0)
+            # only tightens the percentage threshold and does not shed.
+            if self._tuning_status == "THROTTLED" and self._throttled_step >= 1 and AppConfig.suppress_auto_rarity_on_backlog and (entry.list_type or "").startswith("auto_rarity"):
                 logger.debug(f"Shedding incoming auto-rarity entry during {self._tuning_status}: {entry.pokemon_display}")
                 return False
 
@@ -421,7 +430,7 @@ class IVQueueManager:
     def _get_pending_and_awaiting_counts(self) -> Tuple[int, int]:
         """Calculate current pending queue count (unscouted, eligible) and awaiting IV count."""
         now = time.time()
-        awaiting_iv = sum(1 for e in self._entries.values() if e.was_scouted and not e.is_removed) + self._active_scouts
+        awaiting_iv = sum(1 for e in self._entries.values() if (e.is_scouting or e.was_scouted) and not e.is_removed)
         unscouted = sum(1 for e in self._entries.values() if not e.is_scouting and not e.was_scouted and not e.is_removed and e.eligible_at <= now)
         return unscouted, awaiting_iv
 
@@ -472,6 +481,14 @@ class IVQueueManager:
                 f"<red>[Self-Tuning]</red> CIRCUIT BREAKER: Purged {cleared_count} pending/held backlog entries."
             )
         return cleared_count
+
+    def _status_for_percent(self, pct: float, baseline: float) -> str:
+        """Map current scout percent to a display status relative to baseline."""
+        if pct > baseline + 1e-9:
+            return "BOOSTED"
+        if pct < baseline - 1e-9:
+            return "THROTTLED"
+        return "NORMAL"
 
     def get_effective_scout_percent(self) -> float:
         """
@@ -534,6 +551,25 @@ class IVQueueManager:
         now = time.time()
         pending_count, current_awaiting_iv = self._get_pending_and_awaiting_counts()
 
+        # Track sustained worker utilization (awaiting_iv as percent of scout workers).
+        # Timers measure how long utilization has continuously stayed outside the
+        # too_few/too_many dead band over the tuning interval time horizon.
+        workers = max(1, self._current_concurrency)
+        utilization_pct = (current_awaiting_iv / workers) * 100.0
+        self._last_utilization_pct = utilization_pct
+
+        if utilization_pct >= AppConfig.too_many_workers_percent:
+            if self._high_util_start_time is None:
+                self._high_util_start_time = now
+        else:
+            self._high_util_start_time = None
+
+        if utilization_pct <= AppConfig.too_few_workers_percent:
+            if self._low_util_start_time is None:
+                self._low_util_start_time = now
+        else:
+            self._low_util_start_time = None
+
         # STAGE 2: Circuit Breaker PAUSED State (Hard Emergency Stop)
         if self._tuning_status == "PAUSED":
             pause_elapsed = now - (self._pause_start_time or now)
@@ -552,6 +588,8 @@ class IVQueueManager:
                 self._pending_backlog_start_time = None
                 self._pause_reason = ""
                 self._last_concurrency_adjustment_time = now
+                self._high_util_start_time = None
+                self._low_util_start_time = None
 
                 logger.opt(colors=True).info(
                     f"<green>[Self-Tuning]</green> CIRCUIT BREAKER RELEASED: Pause duration ({pause_elapsed:.1f}s >= {AppConfig.pending_pause_duration}s), "
@@ -598,7 +636,9 @@ class IVQueueManager:
 
             # STAGE 1: Throttled / Dynamic Rarity Load Tuning (Stepping DOWN)
             elif backlog_elapsed >= AppConfig.pending_backlog_seconds:
-                if self._tuning_status != "THROTTLED":
+                # Check _throttled_step (not status) so a utilization-driven THROTTLED
+                # state (step 0) still triggers Stage 1 shedding when a real backlog forms
+                if self._throttled_step < 1:
                     self._tuning_status = "THROTTLED"
                     self._throttled_step = 1
                     old_pct = self._current_scout_percent
@@ -611,7 +651,7 @@ class IVQueueManager:
                     self._shed_celllist_backlog()
 
                 # Step down scout percentage further if backlog persists
-                elif (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
+                elif (now - self._last_concurrency_adjustment_time) >= AppConfig.tuning_interval_seconds:
                     old_pct = self._current_scout_percent
                     new_pct = max(0.0005, round(self._current_scout_percent - step_delta, 4))
                     self._current_scout_percent = new_pct
@@ -631,49 +671,57 @@ class IVQueueManager:
                     self._tuning_status = "BACKLOG_WARNING"
 
         else:
-            # Pending count is 0: clear backlog timer and gradually step UP towards baseline, or BOOST beyond baseline if idle
+            # Pending count is 0: clear backlog timer. Tuning is now driven by sustained
+            # worker utilization over the tuning interval time horizon (dead band):
+            #   utilization >= too_many_workers_percent -> step DOWN (workers saturated, backlog imminent)
+            #   utilization <= too_few_workers_percent  -> step UP (workers starved, capacity idle)
+            #   in between                              -> hold steady (equilibrium found)
             self._pending_backlog_start_time = None
 
-            if self._tuning_status in ("THROTTLED", "BACKLOG_WARNING"):
-                self._tuning_status = "RECOVERING"
-                self._last_concurrency_adjustment_time = now
+            if self._tuning_status == "BACKLOG_WARNING":
+                self._tuning_status = self._status_for_percent(self._current_scout_percent, baseline_pct)
 
-            if self._tuning_status == "RECOVERING":
-                if (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
-                    if self._current_scout_percent < baseline_pct:
-                        old_pct = self._current_scout_percent
-                        new_pct = min(baseline_pct, round(self._current_scout_percent + step_delta, 4))
+            interval = AppConfig.tuning_interval_seconds
+            step_ready = (now - self._last_concurrency_adjustment_time) >= interval
+            high_sustained = self._high_util_start_time is not None and (now - self._high_util_start_time) >= interval
+            low_sustained = self._low_util_start_time is not None and (now - self._low_util_start_time) >= interval
+
+            if high_sustained and step_ready:
+                # Too many workers busy: tighten the threshold before a pending backlog forms
+                old_pct = self._current_scout_percent
+                new_pct = max(0.0005, round(old_pct - step_delta, 4))
+                if new_pct < old_pct:
+                    self._current_scout_percent = new_pct
+                    self._last_concurrency_adjustment_time = now
+                    self._tuning_status = self._status_for_percent(new_pct, baseline_pct)
+                    logger.opt(colors=True).warning(
+                        f"<yellow>[Self-Tuning]</yellow> HIGH WORKER LOAD: {utilization_pct:.0f}% of scouts awaiting IV "
+                        f"for {interval}s (>= {AppConfig.too_many_workers_percent:.0f}%). Tightening Poracle scout threshold "
+                        f"({old_pct:.4f}% -> {new_pct:.4f}%)."
+                    )
+
+            elif low_sustained and step_ready and not rarity_calibrating:
+                # Too few workers busy: expand the threshold to feed idle capacity
+                if self._current_scout_percent < max_scout_pct:
+                    old_pct = self._current_scout_percent
+                    new_pct = min(max_scout_pct, round(self._current_scout_percent + step_delta, 4))
+                    if new_pct > old_pct:
                         self._current_scout_percent = new_pct
                         self._last_concurrency_adjustment_time = now
-                        logger.opt(colors=True).info(
-                            f"<green>[Self-Tuning]</green> RECOVERING: Queue clear. Expanding Poracle scout threshold ({old_pct:.4f}% -> {new_pct:.4f}%)."
-                        )
-                        if self._current_scout_percent >= baseline_pct:
-                            self._tuning_status = "NORMAL"
+                        if new_pct >= baseline_pct - 1e-9:
                             self._throttled_step = 0
-                            logger.opt(colors=True).info(f"<green>[Self-Tuning]</green> Queue fully recovered to NORMAL state at baseline scout threshold ({baseline_pct:.4f}%).")
-                    else:
-                        self._tuning_status = "NORMAL"
-                        self._throttled_step = 0
-                        logger.opt(colors=True).info(f"<green>[Self-Tuning]</green> Queue backlog clear. Status returned to NORMAL ({baseline_pct:.4f}%).")
-
-            elif self._tuning_status in ("NORMAL", "BOOSTED"):
-                # Stepping UP beyond baseline if queue remains empty/near zero and NOT calibrating
-                if not rarity_calibrating and current_awaiting_iv <= int(self._current_concurrency * 0.5):
-                    if (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
-                        if self._current_scout_percent < max_scout_pct:
-                            old_pct = self._current_scout_percent
-                            new_pct = min(max_scout_pct, round(self._current_scout_percent + step_delta, 4))
-                            if new_pct > old_pct:
-                                self._current_scout_percent = new_pct
-                                self._last_concurrency_adjustment_time = now
-                                if self._current_scout_percent > baseline_pct:
-                                    self._tuning_status = "BOOSTED"
-                                    self._throttled_step = 0
-                                    logger.opt(colors=True).info(
-                                        f"<green>[Self-Tuning]</green> QUEUE IDLE: Capacity available. Stepping UP Poracle scout threshold "
-                                        f"({old_pct:.4f}% -> {new_pct:.4f}%)."
-                                    )
+                            self._tuning_status = self._status_for_percent(new_pct, baseline_pct)
+                        else:
+                            self._tuning_status = "RECOVERING"
+                        logger.opt(colors=True).info(
+                            f"<green>[Self-Tuning]</green> WORKERS IDLE: {utilization_pct:.0f}% of scouts awaiting IV "
+                            f"for {interval}s (<= {AppConfig.too_few_workers_percent:.0f}%). Expanding Poracle scout threshold "
+                            f"({old_pct:.4f}% -> {new_pct:.4f}%)."
+                        )
+                        if self._tuning_status == "NORMAL" and old_pct < baseline_pct:
+                            logger.opt(colors=True).info(
+                                f"<green>[Self-Tuning]</green> Queue fully recovered to NORMAL state at baseline scout threshold ({baseline_pct:.4f}%)."
+                            )
 
     async def pause_queue_manual(self) -> Dict[str, Any]:
         """Manually pause scout dispatching."""
@@ -691,6 +739,8 @@ class IVQueueManager:
             self._pending_backlog_start_time = None
             self._pause_start_time = None
             self._pause_reason = ""
+            self._high_util_start_time = None
+            self._low_util_start_time = None
             logger.info("Self-Tuning: Queue dispatching MANUALLY RESUMED.")
             return {"status": "success", "message": "Queue dispatching resumed manually.", "tuning_status": self._tuning_status}
 
@@ -703,6 +753,8 @@ class IVQueueManager:
             self._pending_backlog_start_time = None
             self._pause_start_time = None
             self._pause_reason = ""
+            self._high_util_start_time = None
+            self._low_util_start_time = None
             self._recent_scout_outcomes.clear()
             _thresh = float(getattr(AppConfig, "iv_threshold", 0.03))
             self._current_scout_percent = _thresh if _thresh <= 1.0 else 0.03
@@ -727,7 +779,9 @@ class IVQueueManager:
                 f"backlog_sec={AppConfig.pending_backlog_seconds}s, "
                 f"hard_pause_sec={AppConfig.hard_pause_backlog_seconds}s, "
                 f"pause_dur={AppConfig.pending_pause_duration}s, "
-                f"drain_pct={AppConfig.awaiting_iv_drain_percent}%"
+                f"drain_pct={AppConfig.awaiting_iv_drain_percent}%, "
+                f"tuning_interval={AppConfig.tuning_interval_seconds}s, "
+                f"worker_band={AppConfig.too_few_workers_percent:.0f}-{AppConfig.too_many_workers_percent:.0f}%"
             )
 
     def get_self_tuning_stats(self, pending_count: int = 0, awaiting_iv_count: int = 0) -> Dict[str, Any]:
@@ -766,7 +820,12 @@ class IVQueueManager:
             "baseline_scout_percent": float(getattr(AppConfig, "iv_threshold", 0.03)) if float(getattr(AppConfig, "iv_threshold", 0.03)) <= 1.0 else 0.03,
             "tuning_step_factor_config": float(getattr(AppConfig, "tuning_step_factor", 0.005)),
             "max_scout_percent_config": float(getattr(AppConfig, "max_scout_percent", 1.0)),
-            "recovery_step_seconds_config": AppConfig.recovery_step_seconds,
+            "tuning_interval_seconds_config": AppConfig.tuning_interval_seconds,
+            "too_many_workers_percent_config": AppConfig.too_many_workers_percent,
+            "too_few_workers_percent_config": AppConfig.too_few_workers_percent,
+            "worker_utilization_pct": round(self._last_utilization_pct, 1),
+            "high_utilization_elapsed_sec": round(now - self._high_util_start_time, 1) if self._high_util_start_time else 0.0,
+            "low_utilization_elapsed_sec": round(now - self._low_util_start_time, 1) if self._low_util_start_time else 0.0,
             "pause_reason": self._pause_reason,
             "total_pauses_triggered": self._total_pauses_triggered,
             "recent_error_rate_pct": error_rate_pct,

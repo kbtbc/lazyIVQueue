@@ -373,12 +373,18 @@ class LazyIVQueueServer:
             if "self_tuning" not in full_config:
                 full_config["self_tuning"] = {}
             
-            for key in ["enabled", "pending_backlog_seconds", "hard_pause_backlog_seconds", "pending_pause_duration", 
-                        "awaiting_iv_drain_percent", "suppress_auto_rarity_on_backlog", "dynamic_concurrency_enabled", 
-                        "min_concurrency", "error_threshold_percent", "recovery_step_seconds",
-                        "tuning_step_factor", "max_scout_percent"]:
+            for key in ["enabled", "pending_backlog_seconds", "hard_pause_backlog_seconds", "pending_pause_duration",
+                        "awaiting_iv_drain_percent", "suppress_auto_rarity_on_backlog", "dynamic_concurrency_enabled",
+                        "min_concurrency", "error_threshold_percent", "tuning_interval_seconds",
+                        "tuning_step_factor", "max_scout_percent",
+                        "too_many_workers_percent", "too_few_workers_percent"]:
                 if key in data:
                     full_config["self_tuning"][key] = data[key]
+
+            # Accept legacy key name from older clients
+            if "recovery_step_seconds" in data and "tuning_interval_seconds" not in data:
+                full_config["self_tuning"]["tuning_interval_seconds"] = data["recovery_step_seconds"]
+            full_config["self_tuning"].pop("recovery_step_seconds", None)
             
             with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                 json.dump(full_config, f, indent=4)

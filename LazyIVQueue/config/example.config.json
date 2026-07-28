@@ -43,16 +43,18 @@
             "uncommon_percent": 1.0
         }
     },
-    "_comment_self_tuning": "Self-tuning queue circuit breaker and dynamic load tuning (adjusts auto-rarity filtering during backlogs while keeping scouts active).",
+    "_comment_self_tuning": "Self-tuning queue circuit breaker and dynamic load tuning (adjusts auto-rarity filtering during backlogs while keeping scouts active). too_many_workers_percent / too_few_workers_percent define the worker utilization dead band: if awaiting_iv workers stay at/above 50% of concurrency for tuning_interval_seconds the scout percent steps down; at/below 5% it steps up; in between it holds steady.",
     "self_tuning": {
         "enabled": true,
         "pending_backlog_seconds": 45,
         "hard_pause_backlog_seconds": 180,
         "pending_pause_duration": 60,
         "awaiting_iv_drain_percent": 50,
-        "recovery_step_seconds": 30,
+        "tuning_interval_seconds": 30,
         "tuning_step_factor": 0.005,
-        "max_scout_percent": 1.0
+        "max_scout_percent": 1.0,
+        "too_many_workers_percent": 50,
+        "too_few_workers_percent": 5
     },
     "_comment_koji": "Koji API settings for filtering and geofencing.",
     "koji": {
