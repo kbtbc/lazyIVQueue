@@ -81,6 +81,20 @@ scout_config = config.get("scout", {})
 timeout_iv: int = scout_config.get("timeout_iv", 180)
 wild_scout_delay: int = scout_config.get("wild_scout_delay", 0)
 
+# Self-Tuning Queue settings
+self_tuning_config = config.get("self_tuning", {})
+self_tuning_enabled: bool = self_tuning_config.get("enabled", True)
+pending_backlog_seconds: int = self_tuning_config.get("pending_backlog_seconds", 45)
+hard_pause_backlog_seconds: int = self_tuning_config.get("hard_pause_backlog_seconds", 90)
+pending_pause_duration: int = self_tuning_config.get("pending_pause_duration", 60)
+awaiting_iv_drain_percent: int = self_tuning_config.get("awaiting_iv_drain_percent", 50)
+suppress_auto_rarity_on_backlog: bool = self_tuning_config.get("suppress_auto_rarity_on_backlog", True)
+dynamic_concurrency_enabled: bool = self_tuning_config.get("dynamic_concurrency_enabled", True)
+min_concurrency: int = self_tuning_config.get("min_concurrency", 1)
+max_concurrency: int = self_tuning_config.get("max_concurrency", 10)
+error_threshold_percent: float = float(self_tuning_config.get("error_threshold_percent", 25.0))
+recovery_step_seconds: int = self_tuning_config.get("recovery_step_seconds", 30)
+
 def parse_ivlist(raw_list: List[str]) -> Dict[str, int]:
     """
     Parses ivlist into {pokemon_key: priority} mapping.
@@ -106,6 +120,9 @@ def reload_config() -> Dict[str, any]:
     global poracle_config, poracle_ultra_rare, poracle_very_rare, poracle_rare, poracle_uncommon
     global concurrency_scout, timeout_iv, wild_scout_delay
     global geofence_expire_cache_seconds, geofence_refresh_cache_seconds
+    global self_tuning_config, self_tuning_enabled, pending_backlog_seconds, pending_pause_duration
+    global awaiting_iv_drain_percent, dynamic_concurrency_enabled, min_concurrency, max_concurrency
+    global error_threshold_percent, recovery_step_seconds
 
     changes = {}
 
@@ -208,6 +225,21 @@ def reload_config() -> Dict[str, any]:
     if new_refresh != geofence_refresh_cache_seconds:
         changes["geofence_refresh_cache_seconds"] = {"old": geofence_refresh_cache_seconds, "new": new_refresh}
         geofence_refresh_cache_seconds = new_refresh
+
+    # Track self_tuning changes
+    new_tuning = new_config.get("self_tuning", {})
+    if new_tuning != self_tuning_config:
+        changes["self_tuning"] = {"old": self_tuning_config, "new": new_tuning}
+        self_tuning_config = new_tuning
+        self_tuning_enabled = self_tuning_config.get("enabled", True)
+        pending_backlog_seconds = self_tuning_config.get("pending_backlog_seconds", 45)
+        pending_pause_duration = self_tuning_config.get("pending_pause_duration", 60)
+        awaiting_iv_drain_percent = self_tuning_config.get("awaiting_iv_drain_percent", 50)
+        dynamic_concurrency_enabled = self_tuning_config.get("dynamic_concurrency_enabled", True)
+        min_concurrency = self_tuning_config.get("min_concurrency", 1)
+        max_concurrency = self_tuning_config.get("max_concurrency", 10)
+        error_threshold_percent = float(self_tuning_config.get("error_threshold_percent", 25.0))
+        recovery_step_seconds = self_tuning_config.get("recovery_step_seconds", 30)
 
     # Update the global config dict
     config = new_config

@@ -106,6 +106,90 @@
             </div>
         </div>
 
+        <!-- Self-Tuning Queue Circuit Breaker & Monitor -->
+        <div class="card mb-8 border border-gray-200 bg-white shadow-sm rounded-xl p-6">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4 mb-4">
+                <div>
+                    <div class="flex items-center gap-3">
+                        <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                            <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                            </svg>
+                            Self-Tuning Queue Monitor
+                        </h3>
+                        <span id="tuning-status-badge" class="px-2.5 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 border border-green-200 flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                            NORMAL
+                        </span>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1" id="tuning-status-desc">
+                        Circuit breaker active. Monitors pending backlog & drains awaiting IVs during network spikes.
+                    </p>
+                </div>
+                
+                <div class="flex items-center gap-2">
+                    <button id="btn-pause-queue" onclick="toggleQueuePause()" class="px-3.5 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5 shadow-sm">
+                        <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Pause Dispatching
+                    </button>
+                    <button onclick="toggleTuningConfigModal()" class="px-3.5 py-2 text-xs font-semibold rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors flex items-center gap-1.5 shadow-sm">
+                        <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        Tuning Settings
+                    </button>
+                    <button onclick="resetTuningState()" title="Reset Circuit Breaker & Error History" class="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Self-Tuning Telemetry Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-gray-50 rounded-lg p-3.5 border border-gray-100">
+                    <span class="text-xs text-gray-500 font-medium block">Backlog Timer</span>
+                    <div class="flex items-baseline justify-between mt-1">
+                        <span class="text-lg font-bold text-gray-900" id="tuning-backlog-elapsed">0.0s</span>
+                        <span class="text-xs font-semibold text-gray-500" id="tuning-backlog-thresh">/ 45s</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2 overflow-hidden">
+                        <div id="tuning-backlog-bar" class="bg-indigo-600 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 rounded-lg p-3.5 border border-gray-100">
+                    <span class="text-xs text-gray-500 font-medium block">Awaiting IV Drain Target</span>
+                    <div class="flex items-baseline justify-between mt-1">
+                        <span class="text-lg font-bold text-gray-900" id="tuning-awaiting-curr">--</span>
+                        <span class="text-xs font-semibold text-indigo-600" id="tuning-awaiting-target">Target: --</span>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1">
+                        Baseline: <span id="tuning-awaiting-base" class="font-medium text-gray-700">0</span> (<span id="tuning-drain-pct">50</span>% threshold)
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 rounded-lg p-3.5 border border-gray-100">
+                    <span class="text-xs text-gray-500 font-medium block">Active Workers (Concurrency)</span>
+                    <div class="flex items-baseline justify-between mt-1">
+                        <span class="text-lg font-bold text-indigo-700" id="tuning-concurrency-curr">5</span>
+                        <span class="text-xs font-semibold text-gray-500" id="tuning-concurrency-range">Min 1 / Max 10</span>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1">
+                        Auto-Throttle: <span id="tuning-dynamic-status" class="font-medium text-green-600">Enabled</span>
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 rounded-lg p-3.5 border border-gray-100">
+                    <span class="text-xs text-gray-500 font-medium block">Scout Error Rate</span>
+                    <div class="flex items-baseline justify-between mt-1">
+                        <span class="text-lg font-bold text-gray-900" id="tuning-error-rate">0.0%</span>
+                        <span class="text-xs font-semibold text-gray-500" id="tuning-pauses-count">Pauses: 0</span>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1">
+                        Trigger Threshold: <span id="tuning-error-thresh" class="font-medium text-gray-700">25.0%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Charts Row -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
             <div class="card">
@@ -242,6 +326,8 @@
         let sourceChart = null;
         let vipActivityChart = null;
         let rarityActivityChart = null;
+        let currentTuningStatus = 'NORMAL';
+        let lastSelfTuningData = null;
         const ACTIVITY_TOP_N = 20;
         
         const expandedStates = {
@@ -634,6 +720,74 @@
                         document.getElementById('iv-normal').textContent = data.queue.iv_per_hour.normal || 0;
                         document.getElementById('iv-cell').textContent = data.queue.iv_per_hour.nearby_cell || 0;
                     }
+
+                    // Self-Tuning Queue Telemetry Update
+                    if (data.queue.self_tuning) {
+                        const st = data.queue.self_tuning;
+                        currentTuningStatus = st.status;
+                        lastSelfTuningData = st;
+
+                        const badgeEl = document.getElementById('tuning-status-badge');
+                        const descEl = document.getElementById('tuning-status-desc');
+                        const btnPause = document.getElementById('btn-pause-queue');
+
+                        if (st.status === 'NORMAL') {
+                            badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 border border-green-200 flex items-center gap-1.5';
+                            badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> NORMAL';
+                            descEl.textContent = 'Queue dispatching operating normally.';
+                            btnPause.innerHTML = '<svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Pause Dispatching';
+                            btnPause.className = 'px-3.5 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5 shadow-sm';
+                        } else if (st.status === 'BACKLOG_WARNING') {
+                            badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200 flex items-center gap-1.5';
+                            badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-yellow-500 animate-ping"></span> BACKLOG WARNING';
+                            descEl.textContent = `Pending backlog building up (${st.pending_backlog_elapsed_sec}s / ${st.pending_backlog_seconds_config}s threshold)...`;
+                        } else if (st.status === 'PAUSED') {
+                            badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800 border border-red-300 flex items-center gap-1.5 animate-pulse';
+                            badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-600"></span> CIRCUIT BREAKER PAUSED';
+                            descEl.textContent = `PAUSED: ${st.pause_reason || 'Pending backlog limit reached.'} (${st.pause_remaining_sec}s pause remaining, awaiting IV drain to <= ${st.target_awaiting_iv}).`;
+                            btnPause.innerHTML = '<svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Resume Dispatching';
+                            btnPause.className = 'px-3.5 py-2 text-xs font-semibold rounded-lg bg-green-50 border border-green-300 text-green-800 hover:bg-green-100 transition-colors flex items-center gap-1.5 shadow-sm';
+                        } else if (st.status === 'RECOVERING') {
+                            badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-1.5';
+                            badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-blue-500 animate-spin"></span> RECOVERING';
+                            descEl.textContent = 'Circuit breaker released. Ramping up dispatching cautiously.';
+                        } else if (st.status === 'THROTTLED') {
+                            badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800 border border-orange-200 flex items-center gap-1.5';
+                            badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-orange-500"></span> THROTTLED';
+                            descEl.textContent = `Scout error rate (${st.recent_error_rate_pct}%) triggered dynamic concurrency reduction (${st.current_concurrency} workers).`;
+                        } else if (st.status === 'MANUALLY_PAUSED') {
+                            badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800 border border-purple-200 flex items-center gap-1.5';
+                            badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-purple-600"></span> MANUALLY PAUSED';
+                            descEl.textContent = 'Queue dispatching paused manually by operator.';
+                            btnPause.innerHTML = '<svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Resume Dispatching';
+                            btnPause.className = 'px-3.5 py-2 text-xs font-semibold rounded-lg bg-green-50 border border-green-300 text-green-800 hover:bg-green-100 transition-colors flex items-center gap-1.5 shadow-sm';
+                        }
+
+                        // Backlog timer
+                        document.getElementById('tuning-backlog-elapsed').textContent = st.pending_backlog_elapsed_sec.toFixed(1) + 's';
+                        document.getElementById('tuning-backlog-thresh').textContent = `/ ${st.pending_backlog_seconds_config}s`;
+                        const backlogPct = Math.min(100, Math.round((st.pending_backlog_elapsed_sec / Math.max(1, st.pending_backlog_seconds_config)) * 100));
+                        const backlogBar = document.getElementById('tuning-backlog-bar');
+                        backlogBar.style.width = backlogPct + '%';
+                        backlogBar.className = backlogPct > 80 ? 'bg-red-500 h-1.5 rounded-full transition-all duration-300' : (backlogPct > 40 ? 'bg-yellow-500 h-1.5 rounded-full transition-all duration-300' : 'bg-indigo-600 h-1.5 rounded-full transition-all duration-300');
+
+                        // Awaiting IV Drain
+                        document.getElementById('tuning-awaiting-curr').textContent = st.current_awaiting_iv;
+                        document.getElementById('tuning-awaiting-target').textContent = `Target: <= ${st.target_awaiting_iv}`;
+                        document.getElementById('tuning-awaiting-base').textContent = st.baseline_awaiting_iv;
+                        document.getElementById('tuning-drain-pct').textContent = st.awaiting_iv_drain_percent_config;
+
+                        // Active Workers
+                        document.getElementById('tuning-concurrency-curr').textContent = st.current_concurrency;
+                        document.getElementById('tuning-concurrency-range').textContent = `Min ${st.min_concurrency} / Max ${st.max_concurrency}`;
+                        document.getElementById('tuning-dynamic-status').textContent = st.dynamic_concurrency_enabled ? 'Enabled' : 'Disabled';
+                        document.getElementById('tuning-dynamic-status').className = st.dynamic_concurrency_enabled ? 'font-medium text-green-600' : 'font-medium text-gray-400';
+
+                        // Error rate
+                        document.getElementById('tuning-error-rate').textContent = st.recent_error_rate_pct.toFixed(1) + '%';
+                        document.getElementById('tuning-pauses-count').textContent = `Pauses: ${st.total_pauses_triggered}`;
+                        document.getElementById('tuning-error-thresh').textContent = st.error_threshold_percent_config.toFixed(1) + '%';
+                    }
                 }
 
                 // Rarity Metrics
@@ -832,49 +986,111 @@
             }
             try {
                 const response = await fetch('/reset', { method: 'POST' });
-                const contentType = response.headers.get('content-type') || '';
-                let data = {};
-                if (contentType.includes('application/json')) {
-                    data = await response.json();
-                } else {
-                    const text = await response.text();
-                    data = { error: text || `HTTP ${response.status}` };
-                }
-
-                if (!response.ok || data.error) {
-                    alert('Error resetting queue: ' + (data.error || `HTTP ${response.status}`));
-                    return;
-                }
-
-                alert('Reset successful!\n' + (data.message || 'Queue, stats, and rarity calibration have been reset.'));
+                const data = await response.json();
+                alert('Reset successful!\n' + (data.message || 'Queue and stats have been reset.'));
                 fetchStats();
-                fetchQueuePreview();
             } catch (error) {
                 alert('Error resetting queue: ' + error);
             }
         }
-
+		
         async function triggerReload() {
             try {
                 const response = await fetch('/reload', { method: 'POST' });
-                const contentType = response.headers.get('content-type') || '';
-                let data = {};
-                if (contentType.includes('application/json')) {
-                    data = await response.json();
-                } else {
-                    const text = await response.text();
-                    data = { error: text || `HTTP ${response.status}` };
-                }
-
-                if (!response.ok || data.error) {
-                    alert('Error triggering reload: ' + (data.error || `HTTP ${response.status}`));
-                    return;
-                }
-
-                alert('Reload successful!\nChanges: ' + (data.changes_count !== undefined ? data.changes_count : 0));
+                const data = await response.json();
+                alert('Reload successful!\\nChanges: ' + data.changes_count);
                 fetchStats();
             } catch (error) {
                 alert('Error triggering reload: ' + error);
+            }
+        }
+
+        async function toggleQueuePause() {
+            const isPaused = currentTuningStatus === 'MANUALLY_PAUSED' || currentTuningStatus === 'PAUSED';
+            const endpoint = isPaused ? '/tuning/resume' : '/tuning/pause';
+            try {
+                const res = await fetch(endpoint, { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    fetchStats();
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to toggle pause'));
+                }
+            } catch (e) {
+                alert('Request failed: ' + e);
+            }
+        }
+
+        async function resetTuningState() {
+            if (!confirm('Reset self-tuning circuit breaker state and error metrics?')) return;
+            try {
+                const res = await fetch('/tuning/reset', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    fetchStats();
+                }
+            } catch (e) {
+                alert('Reset failed: ' + e);
+            }
+        }
+
+        function toggleTuningConfigModal() {
+            const modal = document.getElementById('tuning-modal');
+            if (modal.classList.contains('hidden')) {
+                if (lastSelfTuningData) {
+                    document.getElementById('cfg-tuning-enabled').checked = lastSelfTuningData.enabled;
+                    document.getElementById('cfg-tuning-backlog-sec').value = lastSelfTuningData.pending_backlog_seconds_config || 45;
+                    document.getElementById('cfg-tuning-hard-pause-sec').value = lastSelfTuningData.hard_pause_backlog_seconds_config || 90;
+                    document.getElementById('cfg-tuning-pause-dur').value = lastSelfTuningData.pending_pause_duration_config || 60;
+                    document.getElementById('cfg-tuning-drain-pct').value = lastSelfTuningData.awaiting_iv_drain_percent_config || 50;
+                    document.getElementById('cfg-tuning-suppress-rarity').checked = lastSelfTuningData.suppress_auto_rarity_config !== false;
+                    document.getElementById('cfg-tuning-dynamic-enabled').checked = lastSelfTuningData.dynamic_concurrency_enabled;
+                    document.getElementById('cfg-tuning-min-conc').value = lastSelfTuningData.min_concurrency || 1;
+                    document.getElementById('cfg-tuning-max-conc').value = lastSelfTuningData.max_concurrency || 10;
+                    document.getElementById('cfg-tuning-error-thresh').value = lastSelfTuningData.error_threshold_percent_config || 25.0;
+                    document.getElementById('cfg-tuning-step-sec').value = 30;
+                }
+                modal.classList.remove('hidden');
+            } else {
+                modal.classList.add('hidden');
+            }
+        }
+
+        function closeTuningConfigModal() {
+            document.getElementById('tuning-modal').classList.add('hidden');
+        }
+
+        async function saveTuningConfig(e) {
+            e.preventDefault();
+            const payload = {
+                enabled: document.getElementById('cfg-tuning-enabled').checked,
+                pending_backlog_seconds: parseInt(document.getElementById('cfg-tuning-backlog-sec').value),
+                hard_pause_backlog_seconds: parseInt(document.getElementById('cfg-tuning-hard-pause-sec').value),
+                pending_pause_duration: parseInt(document.getElementById('cfg-tuning-pause-dur').value),
+                awaiting_iv_drain_percent: parseInt(document.getElementById('cfg-tuning-drain-pct').value),
+                suppress_auto_rarity_on_backlog: document.getElementById('cfg-tuning-suppress-rarity').checked,
+                dynamic_concurrency_enabled: document.getElementById('cfg-tuning-dynamic-enabled').checked,
+                min_concurrency: parseInt(document.getElementById('cfg-tuning-min-conc').value),
+                max_concurrency: parseInt(document.getElementById('cfg-tuning-max-conc').value),
+                error_threshold_percent: parseFloat(document.getElementById('cfg-tuning-error-thresh').value),
+                recovery_step_seconds: parseInt(document.getElementById('cfg-tuning-step-sec').value)
+            };
+            try {
+                const res = await fetch('/tuning/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    closeTuningConfigModal();
+                    fetchStats();
+                    alert('Strategy C self-tuning settings updated successfully!');
+                } else {
+                    alert('Error updating configuration: ' + (data.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Failed to save configuration: ' + err);
             }
         }
 
@@ -893,6 +1109,116 @@
             }, 5000);
         };
     </script>
+
+    <!-- Self-Tuning Settings Modal -->
+    <div id="tuning-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="tuning-modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onclick="closeTuningConfigModal()"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-xl sm:w-full">
+                <form onsubmit="saveTuningConfig(event)">
+                    <div class="bg-white px-6 pt-5 pb-4">
+                        <div class="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+                            <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2" id="tuning-modal-title">
+                                <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path></svg>
+                                Self-Tuning Circuit Breaker Settings
+                            </h3>
+                            <button type="button" onclick="closeTuningConfigModal()" class="text-gray-400 hover:text-gray-600">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        </div>
+
+                        <div class="space-y-4 text-sm text-gray-700">
+                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                <div>
+                                    <label for="cfg-tuning-enabled" class="font-semibold text-gray-900 block">Enable Self-Tuning Circuit Breaker</label>
+                                    <span class="text-xs text-gray-500">Auto-pauses queue on backlog spikes and monitors recovery</span>
+                                </div>
+                                <input type="checkbox" id="cfg-tuning-enabled" class="w-5 h-5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Stage 1 Backlog Relief (sec)</label>
+                                    <input type="number" id="cfg-tuning-backlog-sec" min="5" max="300" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                                    <span class="text-[11px] text-gray-400">Default: 45s</span>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Stage 2 Hard Pause Limit (sec)</label>
+                                    <input type="number" id="cfg-tuning-hard-pause-sec" min="15" max="600" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                                    <span class="text-[11px] text-gray-400">Default: 90s</span>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Min Pause Duration (sec)</label>
+                                    <input type="number" id="cfg-tuning-pause-dur" min="10" max="600" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                                    <span class="text-[11px] text-gray-400">Default: 60s</span>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Awaiting IV Drain Target (%)</label>
+                                    <input type="number" id="cfg-tuning-drain-pct" min="10" max="100" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                                    <span class="text-[11px] text-gray-400">Default: 50%</span>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                <div>
+                                    <label for="cfg-tuning-suppress-rarity" class="font-semibold text-gray-900 block">Shed Auto-Rarity on Backlog (Stage 1)</label>
+                                    <span class="text-xs text-gray-500">Only scout VIPs (ivlist/celllist) during backlog pressure</span>
+                                </div>
+                                <input type="checkbox" id="cfg-tuning-suppress-rarity" class="w-5 h-5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500">
+                            </div>
+
+                            <hr class="border-gray-100 my-2">
+
+                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                <div>
+                                    <label for="cfg-tuning-dynamic-enabled" class="font-semibold text-gray-900 block">Dynamic Concurrency Throttling</label>
+                                    <span class="text-xs text-gray-500">Automatically adjust worker count based on API error rates</span>
+                                </div>
+                                <input type="checkbox" id="cfg-tuning-dynamic-enabled" class="w-5 h-5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Min Concurrency</label>
+                                    <input type="number" id="cfg-tuning-min-conc" min="1" max="20" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Max Concurrency</label>
+                                    <input type="number" id="cfg-tuning-max-conc" min="1" max="50" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Error Threshold (% fail)</label>
+                                    <input type="number" id="cfg-tuning-error-thresh" min="5" max="90" step="0.5" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                                    <span class="text-[11px] text-gray-400">Default: 25.0%</span>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Step Cooldown (sec)</label>
+                                    <input type="number" id="cfg-tuning-step-sec" min="5" max="300" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                                    <span class="text-[11px] text-gray-400">Default: 30s</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-50 px-6 py-3.5 flex justify-end gap-3 border-t border-gray-100">
+                        <button type="button" onclick="closeTuningConfigModal()" class="px-4 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors">
+                            Cancel
+                        </button>
+                        <button type="submit" class="px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-sm">
+                            Save Settings
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 
     <!-- Config Editor Modal -->
     <div id="config-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">

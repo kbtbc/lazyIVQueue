@@ -123,6 +123,17 @@ class IVQueueManager:
 
         # Session start time for IV/hour rate calculation
         self._session_start: float = time.time()
+
+        # Self-Tuning Queue State
+        self._tuning_status: str = "NORMAL"  # NORMAL, BACKLOG_WARNING, PAUSED, RECOVERING, THROTTLED, MANUALLY_PAUSED
+        self._manual_pause: bool = False
+        self._pending_backlog_start_time: Optional[float] = None
+        self._pause_start_time: Optional[float] = None
+        self._pause_reason: str = ""
+        self._baseline_awaiting_iv: int = 0
+        self._total_pauses_triggered: int = 0
+        self._recent_scout_outcomes: List[bool] = []
+        self._last_concurrency_adjustment_time: float = time.time()
         
 
     @classmethod
@@ -405,13 +416,237 @@ class IVQueueManager:
             self._timeouts_by_pokemon[seen_type].get(pokemon_display, 0) + 1
         )
 
+    def record_scout_outcome(self, success: bool) -> None:
+        """Record the outcome of a scout request for dynamic concurrency tuning."""
+        self._recent_scout_outcomes.append(success)
+        if len(self._recent_scout_outcomes) > 30:
+            self._recent_scout_outcomes.pop(0)
+
+    def _get_pending_and_awaiting_counts(self) -> Tuple[int, int]:
+        """Calculate current pending queue count (unscouted, eligible) and awaiting IV count."""
+        now = time.time()
+        awaiting_iv = sum(1 for e in self._entries.values() if e.was_scouted and not e.is_removed) + self._active_scouts
+        unscouted = sum(1 for e in self._entries.values() if not e.is_scouting and not e.was_scouted and not e.is_removed and e.eligible_at <= now)
+        return unscouted, awaiting_iv
+
+    async def _evaluate_self_tuning(self) -> None:
+        """
+        Evaluate queue backlog and error metrics to auto-tune dispatching & concurrency.
+        Uses Strategy C (Graduated Multi-Stage Backlog Relief).
+        Called on queue operations and stats requests.
+        """
+        if self._manual_pause:
+            self._tuning_status = "MANUALLY_PAUSED"
+            return
+
+        if not AppConfig.self_tuning_enabled:
+            self._tuning_status = "NORMAL"
+            self._pending_backlog_start_time = None
+            self._pause_start_time = None
+            return
+
+        now = time.time()
+        pending_count, current_awaiting_iv = self._get_pending_and_awaiting_counts()
+
+        # STAGE 2: Circuit Breaker PAUSED State (Hard Emergency Stop)
+        if self._tuning_status == "PAUSED":
+            pause_elapsed = now - (self._pause_start_time or now)
+            target_awaiting_iv = max(1, int(self._baseline_awaiting_iv * (AppConfig.awaiting_iv_drain_percent / 100.0)))
+            
+            time_condition = pause_elapsed >= AppConfig.pending_pause_duration
+            pending_condition = pending_count == 0
+            awaiting_condition = current_awaiting_iv <= target_awaiting_iv
+
+            if time_condition and pending_condition and awaiting_condition:
+                logger.opt(colors=True).info(
+                    f"<green>[Self-Tuning]</green> CIRCUIT BREAKER RELEASED: Pause duration ({pause_elapsed:.1f}s >= {AppConfig.pending_pause_duration}s), "
+                    f"Pending=0, Awaiting IV drained ({current_awaiting_iv} <= {target_awaiting_iv}). "
+                    f"Transitioning to RECOVERING."
+                )
+                self._tuning_status = "RECOVERING"
+                self._pause_start_time = None
+                self._pending_backlog_start_time = None
+                self._pause_reason = ""
+                if AppConfig.dynamic_concurrency_enabled and self._current_concurrency > AppConfig.min_concurrency:
+                    await self.update_concurrency(AppConfig.min_concurrency)
+            return
+
+        # Monitor pending backlog buildup
+        if pending_count > 0:
+            if self._pending_backlog_start_time is None:
+                self._pending_backlog_start_time = now
+            backlog_elapsed = now - self._pending_backlog_start_time
+
+            # STAGE 2: Hard Circuit Breaker Pause if backlog stays persistent despite Stage 1 load shedding
+            if backlog_elapsed >= AppConfig.hard_pause_backlog_seconds:
+                self._tuning_status = "PAUSED"
+                self._pause_start_time = now
+                self._baseline_awaiting_iv = max(current_awaiting_iv, self._active_scouts, 1)
+                self._total_pauses_triggered += 1
+                self._pause_reason = f"Pending backlog persisted for {backlog_elapsed:.1f}s (hard limit: {AppConfig.hard_pause_backlog_seconds}s)"
+                target = max(1, int(self._baseline_awaiting_iv * (AppConfig.awaiting_iv_drain_percent / 100.0)))
+                logger.opt(colors=True).warning(
+                    f"<red>[Self-Tuning]</red> CIRCUIT BREAKER TRIGGERED Stage 2: {self._pause_reason}. "
+                    f"Pausing dispatching for min {AppConfig.pending_pause_duration}s until pending=0 and awaiting IV <= {target}."
+                )
+
+            # STAGE 1: Throttled / Load Shedding mode (Step down concurrency & shed auto-rarity)
+            elif backlog_elapsed >= AppConfig.pending_backlog_seconds:
+                if self._tuning_status != "THROTTLED":
+                    self._tuning_status = "THROTTLED"
+                    logger.opt(colors=True).warning(
+                        f"<yellow>[Self-Tuning]</yellow> STAGE 1 BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.pending_backlog_seconds}s). "
+                        f"Suppressing auto-rarity background scouts and stepping down concurrency to protect VIP queue."
+                    )
+
+                # Step down concurrency periodically if dynamic concurrency is enabled
+                if AppConfig.dynamic_concurrency_enabled and (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
+                    if self._current_concurrency > AppConfig.min_concurrency:
+                        new_conc = max(AppConfig.min_concurrency, self._current_concurrency - 1)
+                        logger.opt(colors=True).info(
+                            f"<yellow>[Self-Tuning]</yellow> Stepping down concurrency: {self._current_concurrency} -> {new_conc}"
+                        )
+                        await self.update_concurrency(new_conc)
+                        self._last_concurrency_adjustment_time = now
+
+            elif backlog_elapsed >= (AppConfig.pending_backlog_seconds * 0.5):
+                if self._tuning_status == "NORMAL":
+                    self._tuning_status = "BACKLOG_WARNING"
+
+        else:
+            # Pending count is 0: clear backlog timer and gradually recover
+            self._pending_backlog_start_time = None
+
+            if self._tuning_status in ("THROTTLED", "BACKLOG_WARNING", "RECOVERING"):
+                if AppConfig.dynamic_concurrency_enabled and (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
+                    if self._current_concurrency < AppConfig.max_concurrency:
+                        new_conc = min(AppConfig.max_concurrency, self._current_concurrency + 1)
+                        logger.opt(colors=True).info(
+                            f"<green>[Self-Tuning]</green> Backlog cleared. Ramping up concurrency: {self._current_concurrency} -> {new_conc}"
+                        )
+                        await self.update_concurrency(new_conc)
+                        self._last_concurrency_adjustment_time = now
+                    
+                    if self._current_concurrency >= AppConfig.max_concurrency:
+                        self._tuning_status = "NORMAL"
+                        logger.opt(colors=True).info("<green>[Self-Tuning]</green> Queue fully recovered to NORMAL state.")
+                else:
+                    if not AppConfig.dynamic_concurrency_enabled:
+                        self._tuning_status = "NORMAL"
+
+        # Check API Error Rates for Throttling
+        if AppConfig.dynamic_concurrency_enabled and self._tuning_status not in ("PAUSED", "MANUALLY_PAUSED"):
+            if len(self._recent_scout_outcomes) >= 10:
+                failed = self._recent_scout_outcomes.count(False)
+                total = len(self._recent_scout_outcomes)
+                error_rate_pct = (failed / total) * 100.0
+
+                if (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
+                    if error_rate_pct >= AppConfig.error_threshold_percent:
+                        if self._current_concurrency > AppConfig.min_concurrency:
+                            new_conc = max(AppConfig.min_concurrency, self._current_concurrency - 1)
+                            logger.opt(colors=True).warning(
+                                f"<yellow>[Self-Tuning]</yellow> High scout error rate ({error_rate_pct:.1f}% >= {AppConfig.error_threshold_percent}%). "
+                                f"Throttling concurrency from {self._current_concurrency} to {new_conc}."
+                            )
+                            await self.update_concurrency(new_conc)
+                            self._last_concurrency_adjustment_time = now
+                            if self._tuning_status == "NORMAL":
+                                self._tuning_status = "THROTTLED"
+
+    async def pause_queue_manual(self) -> Dict[str, Any]:
+        """Manually pause scout dispatching."""
+        async with self._queue_lock:
+            self._manual_pause = True
+            self._tuning_status = "MANUALLY_PAUSED"
+            logger.info("Self-Tuning: Queue dispatching MANUALLY PAUSED.")
+            return {"status": "success", "message": "Queue dispatching paused manually.", "tuning_status": self._tuning_status}
+
+    async def resume_queue_manual(self) -> Dict[str, Any]:
+        """Manually resume scout dispatching."""
+        async with self._queue_lock:
+            self._manual_pause = False
+            self._tuning_status = "NORMAL"
+            self._pending_backlog_start_time = None
+            self._pause_start_time = None
+            self._pause_reason = ""
+            logger.info("Self-Tuning: Queue dispatching MANUALLY RESUMED.")
+            return {"status": "success", "message": "Queue dispatching resumed manually.", "tuning_status": self._tuning_status}
+
+    async def reset_tuning_state(self) -> Dict[str, Any]:
+        """Reset self-tuning circuit breaker state and error metrics."""
+        async with self._queue_lock:
+            self._manual_pause = False
+            self._tuning_status = "NORMAL"
+            self._pending_backlog_start_time = None
+            self._pause_start_time = None
+            self._pause_reason = ""
+            self._recent_scout_outcomes.clear()
+            logger.info("Self-Tuning: State and error history reset.")
+            return {"status": "success", "message": "Self-tuning state reset.", "tuning_status": self._tuning_status}
+
+    async def sync_self_tuning_config(self) -> None:
+        """Sync self-tuning config settings after hot reload."""
+        async with self._queue_lock:
+            if self._current_concurrency > AppConfig.max_concurrency:
+                await self.update_concurrency(AppConfig.max_concurrency)
+            elif self._current_concurrency < AppConfig.min_concurrency:
+                await self.update_concurrency(AppConfig.min_concurrency)
+            logger.info(
+                f"Self-Tuning config synchronized: enabled={AppConfig.self_tuning_enabled}, "
+                f"backlog_sec={AppConfig.pending_backlog_seconds}s, "
+                f"pause_dur={AppConfig.pending_pause_duration}s, "
+                f"drain_pct={AppConfig.awaiting_iv_drain_percent}%"
+            )
+
+    def get_self_tuning_stats(self, pending_count: int = 0, awaiting_iv_count: int = 0) -> Dict[str, Any]:
+        """Return self-tuning state, metrics, and configuration telemetry."""
+        now = time.time()
+        backlog_elapsed = round(now - self._pending_backlog_start_time, 1) if self._pending_backlog_start_time else 0.0
+        pause_elapsed = round(now - self._pause_start_time, 1) if self._pause_start_time else 0.0
+        pause_remaining = max(0.0, round(AppConfig.pending_pause_duration - pause_elapsed, 1)) if self._pause_start_time else 0.0
+        
+        target_awaiting_iv = max(1, int(self._baseline_awaiting_iv * (AppConfig.awaiting_iv_drain_percent / 100.0))) if self._baseline_awaiting_iv > 0 else 0
+        
+        failed_scouts = self._recent_scout_outcomes.count(False)
+        total_recent = max(1, len(self._recent_scout_outcomes))
+        error_rate_pct = round((failed_scouts / total_recent) * 100.0, 1) if self._recent_scout_outcomes else 0.0
+
+        return {
+            "enabled": AppConfig.self_tuning_enabled,
+            "status": self._tuning_status,
+            "manual_pause": self._manual_pause,
+            "current_concurrency": self._current_concurrency,
+            "min_concurrency": AppConfig.min_concurrency,
+            "max_concurrency": AppConfig.max_concurrency,
+            "pending_backlog_seconds_config": AppConfig.pending_backlog_seconds,
+            "pending_pause_duration_config": AppConfig.pending_pause_duration,
+            "awaiting_iv_drain_percent_config": AppConfig.awaiting_iv_drain_percent,
+            "dynamic_concurrency_enabled": AppConfig.dynamic_concurrency_enabled,
+            "error_threshold_percent_config": AppConfig.error_threshold_percent,
+            "pending_backlog_elapsed_sec": backlog_elapsed,
+            "pause_elapsed_sec": pause_elapsed,
+            "pause_remaining_sec": pause_remaining,
+            "baseline_awaiting_iv": self._baseline_awaiting_iv,
+            "target_awaiting_iv": target_awaiting_iv,
+            "current_awaiting_iv": awaiting_iv_count,
+            "pause_reason": self._pause_reason,
+            "total_pauses_triggered": self._total_pauses_triggered,
+            "recent_error_rate_pct": error_rate_pct,
+        }
+
     async def get_next_for_scout(self) -> Optional[QueueEntry]:
         """
         Get next highest priority entry not currently being scouted.
 
         Uses semaphore to limit concurrent scouts.
-        Returns None if no entries available or at concurrency limit.
+        Respects self-tuning circuit breaker state.
+        Returns None if no entries available, paused, or at concurrency limit.
         """
+        # Check self-tuning circuit breaker status first
+        await self._evaluate_self_tuning()
+        if self._tuning_status in ("PAUSED", "MANUALLY_PAUSED"):
+            return None
         # Try to acquire semaphore slot without blocking
         acquired = self._scout_semaphore.locked()
         if acquired:
@@ -427,56 +662,49 @@ class IVQueueManager:
         # Acquire the semaphore slot
         await self._scout_semaphore.acquire()
 
+        is_vip_only = (self._tuning_status == "THROTTLED" and AppConfig.suppress_auto_rarity_on_backlog)
+        now = time.time()
+
         async with self._queue_lock:
-            # Clean up heap (lazy deletion) and find valid entry
+            # Helper to check if entry is eligible under current tuning state
+            def is_eligible(e: QueueEntry) -> bool:
+                if e.is_removed or e.is_scouting or e.was_scouted:
+                    return False
+                if e.eligible_at > now:
+                    return False
+                if is_vip_only and (e.list_type or "").startswith("auto_rarity"):
+                    return False
+                return True
+
+            # Clean up heap dead entries
             while self._heap:
-                entry = self._heap[0]
-                key = entry.unique_key
-
-                # Skip if already removed, being scouted, or already scouted (waiting for IV)
-                if key not in self._entries or entry.is_removed or entry.is_scouting or entry.was_scouted:
+                top = self._heap[0]
+                top_key = top.unique_key
+                if top_key not in self._entries or self._entries[top_key].is_removed or self._entries[top_key].is_scouting or self._entries[top_key].was_scouted:
                     heapq.heappop(self._heap)
-                    continue
+                else:
+                    break
 
-                # Hold check: entry not yet eligible for scouting
-                if entry.eligible_at > time.time():
-                    # Top entry is held — find best eligible entry from active entries
-                    # rather than blocking all lower-priority scouts during the hold window
-                    now = time.time()
-                    eligible = min(
-                        (e for e in self._entries.values()
-                         if not e.is_removed and not e.is_scouting and not e.was_scouted
-                         and e.eligible_at <= now),
-                        key=lambda e: (e.priority, e.timestamp),
-                        default=None,
-                    )
-                    if eligible is None:
-                        self._scout_semaphore.release()
-                        return None
-                    eligible.is_scouting = True
-                    eligible.scout_started_at = now
-                    self._active_scouts += 1
-                    logger.debug(
-                        f"Dispatching for scout (held bypass): {eligible.pokemon_display} in {eligible.area} "
-                        f"(active scouts: {self._active_scouts})"
-                    )
-                    return eligible
+            # Find best eligible entry from active candidates
+            eligible = min(
+                (e for e in self._entries.values() if is_eligible(e)),
+                key=lambda e: (e.priority, e.timestamp),
+                default=None
+            )
 
-                # Found valid entry
-                heapq.heappop(self._heap)
-                entry.is_scouting = True
-                entry.scout_started_at = time.time()
-                self._active_scouts += 1
+            if eligible is None:
+                self._scout_semaphore.release()
+                return None
 
-                logger.debug(
-                    f"Dispatching for scout: {entry.pokemon_display} in {entry.area} "
-                    f"(active scouts: {self._active_scouts})"
-                )
-                return entry
+            eligible.is_scouting = True
+            eligible.scout_started_at = now
+            self._active_scouts += 1
 
-            # No entries available, release semaphore
-            self._scout_semaphore.release()
-            return None
+            logger.debug(
+                f"Dispatching for scout: {eligible.pokemon_display} in {eligible.area} "
+                f"(active scouts: {self._active_scouts}, tuning_status: {self._tuning_status})"
+            )
+            return eligible
 
     async def mark_scout_sent(self, entry: QueueEntry, success: bool) -> None:
         """
@@ -529,6 +757,9 @@ class IVQueueManager:
 
     async def get_stats(self) -> Dict[str, Any]:
         """Return queue statistics."""
+        # Evaluate self tuning state
+        await self._evaluate_self_tuning()
+
         # Count entries waiting for IV match
         now = time.time()
         waiting_for_iv = sum(1 for e in self._entries.values() if e.was_scouted and not e.is_removed)
@@ -542,8 +773,10 @@ class IVQueueManager:
             "awaiting_iv": waiting_for_iv,
             "active_scouts": self._active_scouts,
             "max_concurrency": AppConfig.concurrency_scout,
+            "current_concurrency": self._current_concurrency,
             "available_slots": self.get_available_slots(),
             "iv_per_hour": self._compute_iv_per_hour(),
+            "self_tuning": self.get_self_tuning_stats(pending_count=pending, awaiting_iv_count=waiting_for_iv + self._active_scouts),
             "session": {
                 "total_queued": self._build_type_stats(self._queued_by_type),
                 "total_matches": self._build_type_stats(self._matches_by_type),

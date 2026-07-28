@@ -43,6 +43,18 @@
             "uncommon_percent": 1.0
         }
     },
+    "_comment_self_tuning": "Self-tuning queue circuit breaker and dynamic concurrency throttling.",
+    "self_tuning": {
+        "enabled": true,
+        "pending_backlog_seconds": 45,
+        "pending_pause_duration": 60,
+        "awaiting_iv_drain_percent": 50,
+        "dynamic_concurrency_enabled": true,
+        "min_concurrency": 1,
+        "max_concurrency": 10,
+        "error_threshold_percent": 25.0,
+        "recovery_step_seconds": 30
+    },
     "_comment_koji": "Koji API settings for filtering and geofencing.",
     "koji": {
         "token": "",

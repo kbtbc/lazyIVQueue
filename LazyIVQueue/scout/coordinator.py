@@ -154,8 +154,9 @@ class ScoutCoordinator:
             )
 
         finally:
-            # Mark scout as sent
+            # Mark scout as sent and record outcome for self-tuning dynamic concurrency
             await queue.mark_scout_sent(entry, success)
+            queue.record_scout_outcome(success)
 
     async def stop(self) -> None:
         """Stop the coordinator gracefully."""

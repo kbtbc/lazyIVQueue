@@ -331,6 +331,69 @@ class LazyIVQueueServer:
             logger.error(f"Error resetting queue: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
+    async def handle_tuning_pause(self, request: web.Request) -> web.Response:
+        """Manually pause queue dispatching."""
+        try:
+            queue = await IVQueueManager.get_instance()
+            res = await queue.pause_queue_manual()
+            return web.json_response(res)
+        except Exception as e:
+            logger.error(f"Error pausing queue manually: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_tuning_resume(self, request: web.Request) -> web.Response:
+        """Manually resume queue dispatching."""
+        try:
+            queue = await IVQueueManager.get_instance()
+            res = await queue.resume_queue_manual()
+            return web.json_response(res)
+        except Exception as e:
+            logger.error(f"Error resuming queue manually: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_tuning_reset(self, request: web.Request) -> web.Response:
+        """Reset self-tuning circuit breaker state and error metrics."""
+        try:
+            queue = await IVQueueManager.get_instance()
+            res = await queue.reset_tuning_state()
+            return web.json_response(res)
+        except Exception as e:
+            logger.error(f"Error resetting tuning state: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_tuning_update(self, request: web.Request) -> web.Response:
+        """Update self-tuning configuration block and persist to config.json."""
+        try:
+            data = await request.json()
+            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+                full_config = json.load(f)
+            
+            if "self_tuning" not in full_config:
+                full_config["self_tuning"] = {}
+            
+            for key in ["enabled", "pending_backlog_seconds", "hard_pause_backlog_seconds", "pending_pause_duration", 
+                        "awaiting_iv_drain_percent", "suppress_auto_rarity_on_backlog", "dynamic_concurrency_enabled", 
+                        "min_concurrency", "max_concurrency", "error_threshold_percent", "recovery_step_seconds"]:
+                if key in data:
+                    full_config["self_tuning"][key] = data[key]
+            
+            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+                json.dump(full_config, f, indent=4)
+            
+            changes = reload_config()
+            queue = await IVQueueManager.get_instance()
+            await queue.sync_self_tuning_config()
+            
+            return web.json_response({
+                "status": "success", 
+                "message": "Self-tuning configuration updated successfully", 
+                "config": full_config.get("self_tuning", {}),
+                "changes": changes
+            })
+        except Exception as e:
+            logger.error(f"Error updating self-tuning config: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
     async def handle_dashboard(self, request: web.Request) -> web.Response:
         """Serve a simple HTML dashboard."""
         import os
@@ -357,6 +420,10 @@ class LazyIVQueueServer:
         self._app.router.add_post("/config/raw", self.handle_config_raw_post)
         self._app.router.add_post("/reset", self.handle_reset)
         self._app.router.add_post("/reload", self.handle_reload)
+        self._app.router.add_post("/tuning/pause", self.handle_tuning_pause)
+        self._app.router.add_post("/tuning/resume", self.handle_tuning_resume)
+        self._app.router.add_post("/tuning/reset", self.handle_tuning_reset)
+        self._app.router.add_post("/tuning/update", self.handle_tuning_update)
 
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
