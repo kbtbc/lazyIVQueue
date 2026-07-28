@@ -527,7 +527,7 @@ class IVQueueManager:
                 self._tuning_status = "PAUSED"
                 self._throttled_step = 0
                 self._pause_start_time = now
-                self._baseline_awaiting_iv = max(self._current_concurrency, AppConfig.max_concurrency, 1)
+                self._baseline_awaiting_iv = max(awaiting_iv_count, self._current_concurrency, AppConfig.max_concurrency, 1)
                 self._total_pauses_triggered += 1
                 self._pause_reason = f"Pending backlog persisted for {backlog_elapsed:.1f}s (hard limit: {AppConfig.hard_pause_backlog_seconds}s)"
                 self._clear_unscouted_backlog()
@@ -538,17 +538,28 @@ class IVQueueManager:
                 )
 
             # STAGE 1: Throttled / Load Shedding mode
-            # Step 1: Suppress celllist (9-point grid scouts) & step down concurrency, keep VIP ivlist and rarity
-            # Step 2: On subsequent step-down, add suppression/removal of auto_rarity
+            # Step 1: Suppress celllist (9-point grid scouts) & step down concurrency.
+            # If celllist is empty, skip straight to Step 2 (suppressing/purging auto_rarity).
+            # Step 2: On subsequent step-down, add suppression/removal of auto_rarity.
             elif backlog_elapsed >= AppConfig.pending_backlog_seconds:
                 if self._tuning_status != "THROTTLED":
                     self._tuning_status = "THROTTLED"
-                    self._throttled_step = 1
-                    logger.opt(colors=True).warning(
-                        f"<yellow>[Self-Tuning]</yellow> STAGE 1 (Step 1) BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.pending_backlog_seconds}s). "
-                        f"Suppressing celllist (9-point grid scouts) and stepping down concurrency to protect VIP ivlist and rarity queues."
-                    )
-                    self._shed_celllist_backlog()
+                    if not AppConfig.celllist:
+                        self._throttled_step = 2
+                        logger.opt(colors=True).warning(
+                            f"<yellow>[Self-Tuning]</yellow> STAGE 1 (Step 2) BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.pending_backlog_seconds}s) and celllist is empty in config. "
+                            f"Suppressing auto-rarity background scouts and stepping down concurrency to protect VIP ivlist queue."
+                        )
+                        self._shed_celllist_backlog()
+                        self._shed_auto_rarity_backlog()
+                    else:
+                        self._throttled_step = 1
+                        logger.opt(colors=True).warning(
+                            f"<yellow>[Self-Tuning]</yellow> STAGE 1 (Step 1) BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.pending_backlog_seconds}s). "
+                            f"Suppressing celllist (9-point grid scouts) and stepping down concurrency to protect VIP ivlist and rarity queues."
+                        )
+                        self._shed_celllist_backlog()
+
                     if AppConfig.dynamic_concurrency_enabled and self._current_concurrency > AppConfig.min_concurrency:
                         step = max(1, int(self._current_concurrency * 0.25))
                         new_conc = max(AppConfig.min_concurrency, self._current_concurrency - step)
@@ -557,6 +568,14 @@ class IVQueueManager:
                         )
                         await self.update_concurrency(new_conc)
                         self._last_concurrency_adjustment_time = now
+
+                    # Clear accumulated pending and held backlog so fewer workers don't face a stale backlog
+                    cleared = self._clear_unscouted_backlog()
+                    self._pending_backlog_start_time = None
+                    if cleared > 0:
+                        logger.opt(colors=True).info(
+                            f"<yellow>[Self-Tuning]</yellow> Cleared {cleared} pending/held entries on Stage 1 throttle down."
+                        )
 
                 # Step down concurrency & escalate to Step 2 (removing auto-rarity) if backlog persists
                 elif AppConfig.dynamic_concurrency_enabled and (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
@@ -576,6 +595,14 @@ class IVQueueManager:
                         )
                         await self.update_concurrency(new_conc)
                         self._last_concurrency_adjustment_time = now
+
+                    # Clear accumulated pending and held backlog on escalated stepdown
+                    cleared = self._clear_unscouted_backlog()
+                    self._pending_backlog_start_time = None
+                    if cleared > 0:
+                        logger.opt(colors=True).info(
+                            f"<yellow>[Self-Tuning]</yellow> Cleared {cleared} pending/held entries on Stage 1 Step 2 stepdown."
+                        )
 
             elif backlog_elapsed >= (AppConfig.pending_backlog_seconds * 0.5):
                 if self._tuning_status == "NORMAL":
@@ -610,6 +637,7 @@ class IVQueueManager:
                             )
                             await self.update_concurrency(new_conc)
                             self._last_concurrency_adjustment_time = now
+                            self._clear_unscouted_backlog()
                             if self._tuning_status == "NORMAL":
                                 self._tuning_status = "THROTTLED"
 
@@ -817,9 +845,9 @@ class IVQueueManager:
 
         # Count entries waiting for IV match
         now = time.time()
-        waiting_for_iv = sum(1 for e in self._entries.values() if e.was_scouted and not e.is_removed)
-        held = sum(1 for e in self._entries.values() if not e.is_scouting and not e.is_removed and e.eligible_at > now)
-        pending = len(self._entries) - waiting_for_iv - held
+        waiting_for_iv = sum(1 for e in self._entries.values() if (e.is_scouting or e.was_scouted) and not e.is_removed)
+        held = sum(1 for e in self._entries.values() if not e.is_scouting and not e.was_scouted and not e.is_removed and e.eligible_at > now)
+        pending = max(0, len(self._entries) - waiting_for_iv - held)
 
         return {
             "queue_size": len(self._entries),
@@ -831,7 +859,7 @@ class IVQueueManager:
             "current_concurrency": self._current_concurrency,
             "available_slots": self.get_available_slots(),
             "iv_per_hour": self._compute_iv_per_hour(),
-            "self_tuning": self.get_self_tuning_stats(pending_count=pending, awaiting_iv_count=waiting_for_iv + self._active_scouts),
+            "self_tuning": self.get_self_tuning_stats(pending_count=pending, awaiting_iv_count=waiting_for_iv),
             "session": {
                 "total_queued": self._build_type_stats(self._queued_by_type),
                 "total_matches": self._build_type_stats(self._matches_by_type),
