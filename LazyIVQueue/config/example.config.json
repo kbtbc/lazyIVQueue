@@ -27,13 +27,13 @@
         "151"
     ],
     "denylist": [],
-    "_comment_auto_rarity": "Dynamically calculates rarity based on spawn frequency. System can be 'lazy' or 'poracle'.",
+    "_comment_auto_rarity": "Dynamically calculates rarity based on spawn frequency using Poracle percentage thresholds. system can be 'poracle' or 'lazy'. iv_threshold defines the baseline percentage of rarest spawns scouted (e.g. 0.03 = 3.0%), cell_threshold for cell scouts (0.01 = 1.0%).",
     "auto_rarity": {
         "enabled": false,
-        "system": "lazy",
+        "system": "poracle",
         "calibration_minutes": 5,
-        "iv_threshold": 50,
-        "cell_threshold": 10,
+        "iv_threshold": 0.03,
+        "cell_threshold": 0.01,
         "ranking_interval_seconds": 120,
         "cleanup_interval_seconds": 60,
         "poracle": {
@@ -43,17 +43,14 @@
             "uncommon_percent": 1.0
         }
     },
-    "_comment_self_tuning": "Self-tuning queue circuit breaker and dynamic concurrency throttling.",
+    "_comment_self_tuning": "Self-tuning queue circuit breaker and dynamic load tuning (adjusts auto-rarity filtering during backlogs while keeping all scouts active at max concurrency).",
     "self_tuning": {
         "enabled": true,
         "pending_backlog_seconds": 45,
         "hard_pause_backlog_seconds": 180,
         "pending_pause_duration": 60,
         "awaiting_iv_drain_percent": 50,
-        "dynamic_concurrency_enabled": true,
-        "min_concurrency": 1,
         "max_concurrency": 10,
-        "error_threshold_percent": 25.0,
         "recovery_step_seconds": 30
     },
     "_comment_koji": "Koji API settings for filtering and geofencing.",

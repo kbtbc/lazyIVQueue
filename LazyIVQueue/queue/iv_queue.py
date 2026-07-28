@@ -124,9 +124,11 @@ class IVQueueManager:
         # Session start time for IV/hour rate calculation
         self._session_start: float = time.time()
 
-        # Self-Tuning Queue State
+        # Self-Tuning Queue State (Poracle auto-rarity percentage load tuning; scouts run at max_concurrency)
         self._tuning_status: str = "NORMAL"  # NORMAL, BACKLOG_WARNING, PAUSED, RECOVERING, THROTTLED, MANUALLY_PAUSED
-        self._throttled_step: int = 0  # 0 = none, 1 = celllist suppressed, 2 = rarity + celllist suppressed
+        self._throttled_step: int = 0  # 0 = normal, 1 = percent tuned down, 2 = percent further reduced
+        _thresh = float(getattr(AppConfig, "iv_threshold", 0.03))
+        self._current_scout_percent: float = _thresh if _thresh <= 1.0 else 0.03
         self._manual_pause: bool = False
         self._pending_backlog_start_time: Optional[float] = None
         self._pause_start_time: Optional[float] = None
@@ -471,12 +473,28 @@ class IVQueueManager:
             )
         return cleared_count
 
+    def get_effective_scout_percent(self) -> float:
+        """
+        Return active Poracle scout percentage threshold (e.g. 0.03 = top 3.0% rarest spawns allowed).
+        Returns 0.0 if circuit breaker is PAUSED or MANUALLY_PAUSED.
+        """
+        if self._tuning_status in ("PAUSED", "MANUALLY_PAUSED"):
+            return 0.0
+        return max(0.0, self._current_scout_percent)
+
     async def _evaluate_self_tuning(self) -> None:
         """
-        Evaluate queue backlog and error metrics to auto-tune dispatching & concurrency.
-        Uses Strategy C (Graduated Multi-Stage Backlog Relief).
-        Called on queue operations and stats requests.
+        Evaluate queue backlog and auto-tune dispatching using dynamic Poracle percentage filtering.
+        Scouts always operate at maximum concurrency (AppConfig.max_concurrency) to maximize throughput.
+        Called on queue operations and status updates.
         """
+        # Ensure scout worker count is always synced to max_concurrency
+        if self._current_concurrency != AppConfig.max_concurrency:
+            await self.update_concurrency(AppConfig.max_concurrency)
+
+        _thresh = float(getattr(AppConfig, "iv_threshold", 0.03))
+        baseline_pct = _thresh if _thresh <= 1.0 else 0.03
+
         if self._manual_pause:
             self._tuning_status = "MANUALLY_PAUSED"
             return
@@ -484,6 +502,7 @@ class IVQueueManager:
         if not AppConfig.self_tuning_enabled:
             self._tuning_status = "NORMAL"
             self._throttled_step = 0
+            self._current_scout_percent = baseline_pct
             self._pending_backlog_start_time = None
             self._pause_start_time = None
             return
@@ -494,26 +513,27 @@ class IVQueueManager:
         # STAGE 2: Circuit Breaker PAUSED State (Hard Emergency Stop)
         if self._tuning_status == "PAUSED":
             pause_elapsed = now - (self._pause_start_time or now)
-            target_awaiting_iv = max(1, int(self._baseline_awaiting_iv * (AppConfig.awaiting_iv_drain_percent / 100.0)))
+            base_iv = self._baseline_awaiting_iv if self._baseline_awaiting_iv > 0 else max(1, current_awaiting_iv)
+            target_awaiting_iv = max(1, int(base_iv * (AppConfig.awaiting_iv_drain_percent / 100.0)))
             
             time_condition = pause_elapsed >= AppConfig.pending_pause_duration
             pending_condition = pending_count == 0
             awaiting_condition = current_awaiting_iv <= target_awaiting_iv
 
             if time_condition and pending_condition and awaiting_condition:
-                logger.opt(colors=True).info(
-                    f"<green>[Self-Tuning]</green> CIRCUIT BREAKER RELEASED: Pause duration ({pause_elapsed:.1f}s >= {AppConfig.pending_pause_duration}s), "
-                    f"Pending queue drained (0), and Awaiting IV drained ({current_awaiting_iv} <= {target_awaiting_iv}). "
-                    f"Queue fully recovered to NORMAL state."
-                )
-                self._tuning_status = "NORMAL"
-                self._throttled_step = 0
+                self._tuning_status = "RECOVERING"
+                self._throttled_step = 1
+                self._current_scout_percent = max(0.001, round(baseline_pct * 0.25, 4))
                 self._pause_start_time = None
                 self._pending_backlog_start_time = None
                 self._pause_reason = ""
-                if AppConfig.dynamic_concurrency_enabled and self._current_concurrency < AppConfig.max_concurrency:
-                    await self.update_concurrency(AppConfig.max_concurrency)
-                    self._last_concurrency_adjustment_time = now
+                self._last_concurrency_adjustment_time = now
+
+                logger.opt(colors=True).info(
+                    f"<green>[Self-Tuning]</green> CIRCUIT BREAKER RELEASED: Pause duration ({pause_elapsed:.1f}s >= {AppConfig.pending_pause_duration}s), "
+                    f"pending queue drained (0), and awaiting IV drained ({current_awaiting_iv} <= {target_awaiting_iv}). "
+                    f"Queue entering RECOVERING state with conservative Poracle scout threshold ({self._current_scout_percent:.3%}). All {self._current_concurrency} scouts active."
+                )
             return
 
         # Monitor pending backlog buildup
@@ -522,124 +542,86 @@ class IVQueueManager:
                 self._pending_backlog_start_time = now
             backlog_elapsed = now - self._pending_backlog_start_time
 
-            # STAGE 2: Hard Circuit Breaker Pause if backlog stays persistent despite Stage 1 load shedding
+            # STAGE 2: Hard Circuit Breaker Pause if backlog stays persistent
             if backlog_elapsed >= AppConfig.hard_pause_backlog_seconds:
                 self._tuning_status = "PAUSED"
-                self._throttled_step = 0
+                self._throttled_step = 2
+                self._current_scout_percent = 0.0
                 self._pause_start_time = now
-                self._baseline_awaiting_iv = max(awaiting_iv_count, self._current_concurrency, AppConfig.max_concurrency, 1)
+                self._baseline_awaiting_iv = max(current_awaiting_iv, self._current_concurrency, AppConfig.max_concurrency, 1)
                 self._total_pauses_triggered += 1
                 self._pause_reason = f"Pending backlog persisted for {backlog_elapsed:.1f}s (hard limit: {AppConfig.hard_pause_backlog_seconds}s)"
-                self._clear_unscouted_backlog()
+                
+                # Clear pending/held unscouted items
+                cleared = self._clear_unscouted_backlog()
                 target = max(1, int(self._baseline_awaiting_iv * (AppConfig.awaiting_iv_drain_percent / 100.0)))
                 logger.opt(colors=True).warning(
                     f"<red>[Self-Tuning]</red> CIRCUIT BREAKER TRIGGERED Stage 2: {self._pause_reason}. "
-                    f"Pausing dispatching & webhook queueing for min {AppConfig.pending_pause_duration}s until pending=0 and awaiting IV <= {target}."
+                    f"Pausing dispatching & webhook queueing for min {AppConfig.pending_pause_duration}s until pending=0 and awaiting IV <= {target}. Purged {cleared} backlog entries."
                 )
 
-            # STAGE 1: Throttled / Load Shedding mode
-            # Step 1: Suppress celllist (9-point grid scouts) & step down concurrency.
-            # If celllist is empty, skip straight to Step 2 (suppressing/purging auto_rarity).
-            # Step 2: On subsequent step-down, add suppression/removal of auto_rarity.
+            # STAGE 1: Throttled / Dynamic Rarity Load Tuning
             elif backlog_elapsed >= AppConfig.pending_backlog_seconds:
                 if self._tuning_status != "THROTTLED":
                     self._tuning_status = "THROTTLED"
-                    if not AppConfig.celllist:
+                    self._throttled_step = 1
+                    old_pct = self._current_scout_percent
+                    self._current_scout_percent = max(0.001, round(self._current_scout_percent * 0.70, 4))
+                    self._last_concurrency_adjustment_time = now
+                    logger.opt(colors=True).warning(
+                        f"<yellow>[Self-Tuning]</yellow> STAGE 1 BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.pending_backlog_seconds}s). "
+                        f"Tightening Poracle scout threshold ({old_pct:.3%} -> {self._current_scout_percent:.3%}). All {self._current_concurrency} scouts active."
+                    )
+                    self._shed_celllist_backlog()
+
+                # Step down scout percentage further if backlog persists
+                elif (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
+                    old_pct = self._current_scout_percent
+                    step_delta = max(0.002, round(baseline_pct * 0.20, 4))
+                    new_pct = max(0.0005, round(self._current_scout_percent - step_delta, 4))
+                    self._current_scout_percent = new_pct
+                    self._last_concurrency_adjustment_time = now
+
+                    if self._current_scout_percent <= 0.005:
                         self._throttled_step = 2
-                        logger.opt(colors=True).warning(
-                            f"<yellow>[Self-Tuning]</yellow> STAGE 1 (Step 2) BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.pending_backlog_seconds}s) and celllist is empty in config. "
-                            f"Suppressing auto-rarity background scouts and stepping down concurrency to protect VIP ivlist queue."
-                        )
-                        self._shed_celllist_backlog()
-                        self._shed_auto_rarity_backlog()
-                    else:
-                        self._throttled_step = 1
-                        logger.opt(colors=True).warning(
-                            f"<yellow>[Self-Tuning]</yellow> STAGE 1 (Step 1) BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.pending_backlog_seconds}s). "
-                            f"Suppressing celllist (9-point grid scouts) and stepping down concurrency to protect VIP ivlist and rarity queues."
-                        )
-                        self._shed_celllist_backlog()
-
-                    if AppConfig.dynamic_concurrency_enabled and self._current_concurrency > AppConfig.min_concurrency:
-                        step = max(1, int(self._current_concurrency * 0.25))
-                        new_conc = max(AppConfig.min_concurrency, self._current_concurrency - step)
-                        logger.opt(colors=True).info(
-                            f"<yellow>[Self-Tuning]</yellow> Stepping down concurrency: {self._current_concurrency} -> {new_conc}"
-                        )
-                        await self.update_concurrency(new_conc)
-                        self._last_concurrency_adjustment_time = now
-
-                    # Clear accumulated pending and held backlog so fewer workers don't face a stale backlog
-                    cleared = self._clear_unscouted_backlog()
-                    self._pending_backlog_start_time = None
-                    if cleared > 0:
-                        logger.opt(colors=True).info(
-                            f"<yellow>[Self-Tuning]</yellow> Cleared {cleared} pending/held entries on Stage 1 throttle down."
-                        )
-
-                # Step down concurrency & escalate to Step 2 (removing auto-rarity) if backlog persists
-                elif AppConfig.dynamic_concurrency_enabled and (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
-                    if self._throttled_step < 2:
-                        self._throttled_step = 2
-                        logger.opt(colors=True).warning(
-                            f"<yellow>[Self-Tuning]</yellow> STAGE 1 (Step 2) BACKLOG RELIEF: Backlog persisting. "
-                            f"Suppressing auto-rarity background scouts in addition to celllist. Only VIP ivlist will be scouted."
-                        )
                         self._shed_auto_rarity_backlog()
 
-                    if self._current_concurrency > AppConfig.min_concurrency:
-                        step = max(1, int(self._current_concurrency * 0.25))
-                        new_conc = max(AppConfig.min_concurrency, self._current_concurrency - step)
-                        logger.opt(colors=True).info(
-                            f"<yellow>[Self-Tuning]</yellow> Stepping down concurrency: {self._current_concurrency} -> {new_conc}"
-                        )
-                        await self.update_concurrency(new_conc)
-                        self._last_concurrency_adjustment_time = now
-
-                    # Clear accumulated pending and held backlog on escalated stepdown
-                    cleared = self._clear_unscouted_backlog()
-                    self._pending_backlog_start_time = None
-                    if cleared > 0:
-                        logger.opt(colors=True).info(
-                            f"<yellow>[Self-Tuning]</yellow> Cleared {cleared} pending/held entries on Stage 1 Step 2 stepdown."
-                        )
+                    logger.opt(colors=True).warning(
+                        f"<yellow>[Self-Tuning]</yellow> STAGE 1 BACKLOG PERSISTING: Tightening Poracle scout threshold ({old_pct:.3%} -> {new_pct:.3%}). "
+                        f"All {self._current_concurrency} scouts active."
+                    )
 
             elif backlog_elapsed >= (AppConfig.pending_backlog_seconds * 0.5):
                 if self._tuning_status == "NORMAL":
                     self._tuning_status = "BACKLOG_WARNING"
 
         else:
-            # Pending count is 0: clear backlog timer and restore status/concurrency
+            # Pending count is 0: clear backlog timer and gradually recover status & scout percent
             self._pending_backlog_start_time = None
 
-            if self._tuning_status in ("THROTTLED", "BACKLOG_WARNING", "RECOVERING"):
-                if AppConfig.dynamic_concurrency_enabled and self._current_concurrency < AppConfig.max_concurrency:
-                    await self.update_concurrency(AppConfig.max_concurrency)
-                    self._last_concurrency_adjustment_time = now
-                self._tuning_status = "NORMAL"
-                self._throttled_step = 0
-                logger.opt(colors=True).info("<green>[Self-Tuning]</green> Queue backlog cleared. Concurrency restored and status returned to NORMAL.")
+            if self._tuning_status in ("THROTTLED", "BACKLOG_WARNING"):
+                self._tuning_status = "RECOVERING"
+                self._last_concurrency_adjustment_time = now
 
-        # Check API Error Rates for Throttling
-        if AppConfig.dynamic_concurrency_enabled and self._tuning_status not in ("PAUSED", "MANUALLY_PAUSED"):
-            if len(self._recent_scout_outcomes) >= 10:
-                failed = self._recent_scout_outcomes.count(False)
-                total = len(self._recent_scout_outcomes)
-                error_rate_pct = (failed / total) * 100.0
-
+            if self._tuning_status == "RECOVERING":
                 if (now - self._last_concurrency_adjustment_time) >= AppConfig.recovery_step_seconds:
-                    if error_rate_pct >= AppConfig.error_threshold_percent:
-                        if self._current_concurrency > AppConfig.min_concurrency:
-                            new_conc = max(AppConfig.min_concurrency, self._current_concurrency - 1)
-                            logger.opt(colors=True).warning(
-                                f"<yellow>[Self-Tuning]</yellow> High scout error rate ({error_rate_pct:.1f}% >= {AppConfig.error_threshold_percent}%). "
-                                f"Throttling concurrency from {self._current_concurrency} to {new_conc}."
-                            )
-                            await self.update_concurrency(new_conc)
-                            self._last_concurrency_adjustment_time = now
-                            self._clear_unscouted_backlog()
-                            if self._tuning_status == "NORMAL":
-                                self._tuning_status = "THROTTLED"
+                    if self._current_scout_percent < baseline_pct:
+                        old_pct = self._current_scout_percent
+                        step_delta = max(0.002, round(baseline_pct * 0.20, 4))
+                        new_pct = min(baseline_pct, round(self._current_scout_percent + step_delta, 4))
+                        self._current_scout_percent = new_pct
+                        self._last_concurrency_adjustment_time = now
+                        logger.opt(colors=True).info(
+                            f"<green>[Self-Tuning]</green> RECOVERING: Queue clear. Expanding Poracle scout threshold ({old_pct:.3%} -> {new_pct:.3%})."
+                        )
+                        if self._current_scout_percent >= baseline_pct:
+                            self._tuning_status = "NORMAL"
+                            self._throttled_step = 0
+                            logger.opt(colors=True).info(f"<green>[Self-Tuning]</green> Queue fully recovered to NORMAL state at baseline scout threshold ({baseline_pct:.3%}).")
+                    else:
+                        self._tuning_status = "NORMAL"
+                        self._throttled_step = 0
+                        logger.opt(colors=True).info(f"<green>[Self-Tuning]</green> Queue backlog clear. Status returned to NORMAL ({baseline_pct:.3%}).")
 
     async def pause_queue_manual(self) -> Dict[str, Any]:
         """Manually pause scout dispatching."""
@@ -722,6 +704,8 @@ class IVQueueManager:
             "baseline_awaiting_iv": base_iv,
             "target_awaiting_iv": target_awaiting_iv,
             "current_awaiting_iv": awaiting_iv_count,
+            "current_scout_percent": self._current_scout_percent,
+            "baseline_scout_percent": float(getattr(AppConfig, "iv_threshold", 0.03)) if float(getattr(AppConfig, "iv_threshold", 0.03)) <= 1.0 else 0.03,
             "pause_reason": self._pause_reason,
             "total_pauses_triggered": self._total_pauses_triggered,
             "recent_error_rate_pct": error_rate_pct,
@@ -977,10 +961,23 @@ class IVQueueManager:
         total_wild_early = self._get_total_from_type_dict(self._wild_early_by_type)
         total_timeouts = self._get_total_from_type_dict(self._timeouts_by_type)
 
+        status_name = self._tuning_status.lower()
+        _thresh = float(getattr(AppConfig, "iv_threshold", 0.03))
+        base_pct = _thresh if _thresh <= 1.0 else 0.03
+        rarity_str = f" ({self._current_scout_percent:.3%})" if self._current_scout_percent < base_pct else f" ({self._current_scout_percent:.3%})"
+        if status_name == "normal":
+            color = "green"
+        elif status_name == "recovering":
+            color = "blue"
+        elif status_name in ("throttled", "backlog_warning"):
+            color = "yellow"
+        else:
+            color = "red"
+
         logger.opt(colors=True).info(
             f"<magenta>IVQueue Status:</magenta> <yellow>{pending} pending</yellow> | "
             f"<white>{held} held</white> | "
-            f"<blue>{awaiting_iv} awaiting IV</blue> | heap={heap_size} | "
+            f"<blue>{awaiting_iv} awaiting IV</blue> | <{color}>{status_name}{rarity_str}: {self._active_scouts}/{self._current_concurrency} scouts</{color}> | "
             f"<cyan>Session: {total_queued} queued</cyan> / <green>{total_matches} matches</green> / <magenta>{total_early} early</magenta> / <cyan>{total_wild_early} wild_early</cyan> / <red>{total_timeouts} timeouts</red>"
         )
 

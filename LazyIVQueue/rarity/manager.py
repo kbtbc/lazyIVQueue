@@ -81,11 +81,13 @@ class RarityManager:
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         self._ranking_task = asyncio.create_task(self._ranking_loop())
 
+        thresh_fmt = f"{AppConfig.iv_threshold:.3%}" if AppConfig.auto_rarity_system == 'poracle' else f"{AppConfig.iv_threshold}"
+        cell_fmt = f"{AppConfig.cell_threshold:.3%}" if AppConfig.auto_rarity_system == 'poracle' else f"{AppConfig.cell_threshold}"
         logger.info(
-            f"RarityManager initialized. "
+            f"RarityManager initialized ({AppConfig.auto_rarity_system.upper()} mode). "
             f"Calibration: {AppConfig.calibration_minutes} min, "
-            f"IV threshold: {AppConfig.iv_threshold}, "
-            f"Cell threshold: {AppConfig.cell_threshold}"
+            f"IV threshold: {thresh_fmt}, "
+            f"Cell threshold: {cell_fmt}"
         )
 
     async def add_spawn(
@@ -338,11 +340,17 @@ class RarityManager:
 
         # Log summary
         total_pokemon = len(self._global_species_rankings)
-        would_queue = min(total_pokemon, AppConfig.iv_threshold)
+        if AppConfig.auto_rarity_system == 'poracle':
+            would_queue = sum(1 for pct in self._global_pct_cache.values() if pct <= AppConfig.iv_threshold)
+            thresh_log_str = f"{AppConfig.iv_threshold:.3%}"
+        else:
+            would_queue = min(total_pokemon, int(AppConfig.iv_threshold))
+            thresh_log_str = f"{int(AppConfig.iv_threshold)}"
+
         logger.debug(
             f"Rarity rankings updated: {len(self._rankings)} areas, "
             f"{total_pokemon} unique global Pokemon tracked, "
-            f"{would_queue} would queue globally (threshold={AppConfig.iv_threshold})"
+            f"{would_queue} would queue globally (threshold={thresh_log_str})"
         )
 
     def log_census_status(self) -> None:
@@ -358,12 +366,17 @@ class RarityManager:
             total_active += area_count
             area_summaries.append(f"{area}:{unique_count}u/{area_count}a")
 
-        # Count Pokemon that are actually rare enough to queue (rank <= threshold)
+        # Count Pokemon that are actually rare enough to queue
         rare_count = 0
-        for area_rankings in self._rankings.values():
-            for idx, _ in enumerate(area_rankings):
-                if idx + 1 <= AppConfig.iv_threshold:  # rank is 1-indexed
-                    rare_count += 1
+        if AppConfig.auto_rarity_system == 'poracle':
+            rare_count = sum(1 for pct in self._global_pct_cache.values() if pct <= AppConfig.iv_threshold)
+            thresh_cond_str = f"pct<={AppConfig.iv_threshold:.3%}"
+        else:
+            for area_rankings in self._rankings.values():
+                for idx, _ in enumerate(area_rankings):
+                    if idx + 1 <= AppConfig.iv_threshold:  # rank is 1-indexed
+                        rare_count += 1
+            thresh_cond_str = f"rank<={int(AppConfig.iv_threshold)}"
 
         status_icon = "<yellow>[*]</yellow>" if self._status == "CALIBRATING" else "<cyan>[~]</cyan>"
         calibration_info = ""
@@ -380,7 +393,7 @@ class RarityManager:
         logger.opt(colors=True).info(
             f"{status_icon} Census Status: {self._total_spawns_tracked} spawns received | "
             f"{unique_pokemon} unique pokemon | {total_active} active | {len(self._actives)} areas | "
-            f"{rare_count} rare (rank<={AppConfig.iv_threshold}){calibration_info}"
+            f"{rare_count} rare ({thresh_cond_str}){calibration_info}"
         )
 
         # Log per-area breakdown at debug level
@@ -421,7 +434,7 @@ class RarityManager:
                         "global_rank": self._global_rank_cache.get(pk),
                         "pokemon": pk,
                         "active_count": count,
-                        "would_queue": (self._global_rank_cache.get(pk, 99999) <= AppConfig.iv_threshold) if AppConfig.auto_rarity_system == 'poracle' or not AppConfig.filter_with_koji else (idx + 1 <= AppConfig.iv_threshold),
+                        "would_queue": (self._global_pct_cache.get(pk, 1.0) <= AppConfig.iv_threshold) if AppConfig.auto_rarity_system == 'poracle' else (idx + 1 <= AppConfig.iv_threshold if not AppConfig.filter_with_koji else self._global_rank_cache.get(pk, 99999) <= AppConfig.iv_threshold),
                     }
                     for idx, (pk, count) in enumerate(rankings)
                 ],

@@ -269,6 +269,8 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
         elif AppConfig.auto_rarity_enabled:
             # Auto Rarity fallback
             rarity_manager = await RarityManager.get_instance()
+            queue = await IVQueueManager.get_instance()
+            effective_max_pct = queue.get_effective_scout_percent()
 
             # Check if calibration complete
             if not rarity_manager.is_ready():
@@ -287,43 +289,36 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
             area = pokemon.area or "GLOBAL" 
 
             # Get rarity rank (None = truly unknown, 1 = rarest, higher = more common)
-            # High rank (beyond total tracked) = seen in census but rankings pending update
             if AppConfig.auto_rarity_system == 'poracle':
-                # Poracle uses percentage based rarity
+                # Poracle uses percentage based rarity with dynamic self-tuning threshold
+                if effective_max_pct <= 0.0:
+                    logger.trace(f"Auto Rarity (Poracle): dispatching paused/suppressed, skipping {pokemon.pokemon_display}")
+                    return
+
                 pct = rarity_manager.get_rarity_percent(pokemon.pokemon_id, pokemon.form, "GLOBAL")
+
                 if pct is None:
-                    tier = 1
                     priority = 1000
                     list_type = "auto_rarity(unknown)"
                     logger.debug(f"Auto Rarity: {pokemon.pokemon_display} unknown globally - treating as ultra rare")
-                elif pct <= AppConfig.poracle_ultra_rare:
-                    tier = 2
-                    priority = 1001
-                    list_type = f"auto_rarity(poracle-ultra-rare, pct={pct:.4f})"
-                elif pct <= AppConfig.poracle_very_rare:
-                    tier = 3
-                    priority = 1002
-                    list_type = f"auto_rarity(poracle-very-rare, pct={pct:.4f})"
-                elif pct <= AppConfig.poracle_rare:
-                    tier = 4
-                    priority = 1003
-                    list_type = f"auto_rarity(poracle-rare, pct={pct:.4f})"
-                elif pct <= AppConfig.poracle_uncommon:
-                    tier = 5
-                    priority = 1004
-                    list_type = f"auto_rarity(poracle-uncommon, pct={pct:.4f})"
+                elif pct <= effective_max_pct:
+                    priority = 1000 + int(pct * 10000)
+                    if pct <= AppConfig.poracle_ultra_rare:
+                        list_type = f"auto_rarity(poracle-ultra-rare, pct={pct:.4f})"
+                    elif pct <= AppConfig.poracle_very_rare:
+                        list_type = f"auto_rarity(poracle-very-rare, pct={pct:.4f})"
+                    elif pct <= AppConfig.poracle_rare:
+                        list_type = f"auto_rarity(poracle-rare, pct={pct:.4f})"
+                    else:
+                        list_type = f"auto_rarity(poracle, pct={pct:.4f})"
                 else:
-                    logger.trace(f"Auto Rarity (Poracle): {pokemon.pokemon_display} common (pct={pct:.4f} > {AppConfig.poracle_uncommon}) - skipping")
-                    return
-                
-                if tier > AppConfig.iv_threshold:
-                    logger.trace(f"Auto Rarity (Poracle): {pokemon.pokemon_display} tier {tier} > {AppConfig.iv_threshold} - skipping")
+                    logger.trace(f"Auto Rarity (Poracle): {pokemon.pokemon_display} pct={pct:.4f} > current threshold {effective_max_pct:.4f} - skipping")
                     return
             else:
                 rank = rarity_manager.get_rarity_rank(pokemon.pokemon_id, pokemon.form, area)
+
                 if rank is None:
                     # Truly unknown Pokemon (never seen in census) = treat as ultra rare
-                    # Tier 1000: auto_rarity (always lower priority than ivlist/celllist tier 0)
                     priority = 1000  # Top priority within auto_rarity tier
                     list_type = "auto_rarity(unknown)"
                     logger.debug(

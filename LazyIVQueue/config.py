@@ -31,11 +31,11 @@ log_file = log_config.get("file", False)
 # Auto Rarity settings
 auto_rarity_config = config.get("auto_rarity", {})
 auto_rarity_enabled: bool = auto_rarity_config.get("enabled", False)
-auto_rarity_system: str = auto_rarity_config.get("system", "lazy")
+auto_rarity_system: str = auto_rarity_config.get("system", "poracle")
 
 calibration_minutes: int = auto_rarity_config.get("calibration_minutes", 5)
-iv_threshold: int = auto_rarity_config.get("iv_threshold", 50)
-cell_threshold: int = auto_rarity_config.get("cell_threshold", 20)
+iv_threshold: float = float(auto_rarity_config.get("iv_threshold", 0.03))
+cell_threshold: float = float(auto_rarity_config.get("cell_threshold", 0.01))
 ranking_interval_seconds: int = auto_rarity_config.get("ranking_interval_seconds", 300)
 cleanup_interval_seconds: int = auto_rarity_config.get("cleanup_interval_seconds", 60)
 
@@ -160,7 +160,7 @@ def reload_config() -> Dict[str, any]:
 
     
     global auto_rarity_system
-    new_auto_rarity_system = new_auto_rarity.get("system", "lazy")
+    new_auto_rarity_system = new_auto_rarity.get("system", "poracle")
     if new_auto_rarity_system != auto_rarity_system:
         changes["auto_rarity_system"] = {"old": auto_rarity_system, "new": new_auto_rarity_system}
         auto_rarity_system = new_auto_rarity_system
@@ -170,12 +170,14 @@ def reload_config() -> Dict[str, any]:
         changes["calibration_minutes"] = {"old": calibration_minutes, "new": new_calibration}
         calibration_minutes = new_calibration
 
-    new_iv_threshold = new_auto_rarity.get("iv_threshold", 50)
+    global iv_threshold
+    new_iv_threshold = float(new_auto_rarity.get("iv_threshold", 0.03))
     if new_iv_threshold != iv_threshold:
         changes["iv_threshold"] = {"old": iv_threshold, "new": new_iv_threshold}
         iv_threshold = new_iv_threshold
 
-    new_cell_threshold = new_auto_rarity.get("cell_threshold", 20)
+    global cell_threshold
+    new_cell_threshold = float(new_auto_rarity.get("cell_threshold", 0.01))
     if new_cell_threshold != cell_threshold:
         changes["cell_threshold"] = {"old": cell_threshold, "new": new_cell_threshold}
         cell_threshold = new_cell_threshold
@@ -189,6 +191,7 @@ def reload_config() -> Dict[str, any]:
     if new_cleanup_interval != cleanup_interval_seconds:
         changes["cleanup_interval_seconds"] = {"old": cleanup_interval_seconds, "new": new_cleanup_interval}
         cleanup_interval_seconds = new_cleanup_interval
+
     new_poracle = new_auto_rarity.get("poracle", {})
     if new_poracle != poracle_config:
         changes["poracle_config"] = {"old": poracle_config, "new": new_poracle}
