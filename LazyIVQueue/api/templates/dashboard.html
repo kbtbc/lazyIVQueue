@@ -832,19 +832,46 @@
             }
             try {
                 const response = await fetch('/reset', { method: 'POST' });
-                const data = await response.json();
-                alert('Reset successful!\n' + (data.message || 'Queue and stats have been reset.'));
+                const contentType = response.headers.get('content-type') || '';
+                let data = {};
+                if (contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    const text = await response.text();
+                    data = { error: text || `HTTP ${response.status}` };
+                }
+
+                if (!response.ok || data.error) {
+                    alert('Error resetting queue: ' + (data.error || `HTTP ${response.status}`));
+                    return;
+                }
+
+                alert('Reset successful!\n' + (data.message || 'Queue, stats, and rarity calibration have been reset.'));
                 fetchStats();
+                fetchQueuePreview();
             } catch (error) {
                 alert('Error resetting queue: ' + error);
             }
         }
-		
+
         async function triggerReload() {
             try {
                 const response = await fetch('/reload', { method: 'POST' });
-                const data = await response.json();
-                alert('Reload successful!\\nChanges: ' + data.changes_count);
+                const contentType = response.headers.get('content-type') || '';
+                let data = {};
+                if (contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    const text = await response.text();
+                    data = { error: text || `HTTP ${response.status}` };
+                }
+
+                if (!response.ok || data.error) {
+                    alert('Error triggering reload: ' + (data.error || `HTTP ${response.status}`));
+                    return;
+                }
+
+                alert('Reload successful!\nChanges: ' + (data.changes_count !== undefined ? data.changes_count : 0));
                 fetchStats();
             } catch (error) {
                 alert('Error triggering reload: ' + error);
