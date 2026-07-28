@@ -92,7 +92,7 @@ awaiting_iv_drain_percent: int = self_tuning_config.get("awaiting_iv_drain_perce
 suppress_auto_rarity_on_backlog: bool = self_tuning_config.get("suppress_auto_rarity_on_backlog", True)
 dynamic_concurrency_enabled: bool = self_tuning_config.get("dynamic_concurrency_enabled", True)
 min_concurrency: int = self_tuning_config.get("min_concurrency", 1)
-max_concurrency: int = self_tuning_config.get("max_concurrency", concurrency_scout)
+max_concurrency: int = max(self_tuning_config.get("max_concurrency", concurrency_scout), concurrency_scout)
 error_threshold_percent: float = float(self_tuning_config.get("error_threshold_percent", 25.0))
 recovery_step_seconds: int = self_tuning_config.get("recovery_step_seconds", 30)
 
@@ -238,7 +238,7 @@ def reload_config() -> Dict[str, any]:
         awaiting_iv_drain_percent = self_tuning_config.get("awaiting_iv_drain_percent", 50)
         dynamic_concurrency_enabled = self_tuning_config.get("dynamic_concurrency_enabled", True)
         min_concurrency = self_tuning_config.get("min_concurrency", 1)
-        max_concurrency = self_tuning_config.get("max_concurrency", concurrency_scout)
+        max_concurrency = max(self_tuning_config.get("max_concurrency", concurrency_scout), concurrency_scout)
         error_threshold_percent = float(self_tuning_config.get("error_threshold_percent", 25.0))
         recovery_step_seconds = self_tuning_config.get("recovery_step_seconds", 30)
 

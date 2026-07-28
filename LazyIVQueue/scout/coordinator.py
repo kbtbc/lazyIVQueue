@@ -30,7 +30,7 @@ class ScoutCoordinator:
         self._running: bool = False
         self._task: Optional[asyncio.Task] = None
         self._client: Optional[APIClient] = None
-        self._check_interval: float = 0.5  # seconds between queue checks
+        self._check_interval: float = 0.1  # seconds between queue checks
 
         # Metrics
         self._total_scouts: int = 0

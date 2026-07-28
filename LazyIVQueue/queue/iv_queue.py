@@ -150,25 +150,19 @@ class IVQueueManager:
         if self._initialized:
             return
 
-        self._scout_semaphore = asyncio.Semaphore(AppConfig.concurrency_scout)
         self._current_concurrency = AppConfig.concurrency_scout
         self._initialized = True
         logger.info(f"IVQueue initialized with concurrency limit: {AppConfig.concurrency_scout}")
 
     async def update_concurrency(self, new_concurrency: int) -> None:
         """
-        Update scout concurrency limit by recreating the semaphore.
-
-        Note: This is a best-effort operation. Active scouts will continue
-        until they complete. New concurrency takes effect for new scouts.
+        Update scout concurrency limit.
 
         Args:
             new_concurrency: New concurrency limit
         """
         async with self._queue_lock:
             old_concurrency = self._current_concurrency
-            # Create new semaphore with new limit
-            self._scout_semaphore = asyncio.Semaphore(new_concurrency)
             self._current_concurrency = new_concurrency
             logger.info(
                 f"Scout concurrency updated: {old_concurrency} -> {new_concurrency}"
@@ -321,10 +315,6 @@ class IVQueueManager:
             if encounter_id:
                 self.record_completed_encounter(encounter_id)
 
-        # Release semaphore outside the lock if entry was scouting
-        if removed and removed.is_scouting and self._scout_semaphore:
-            self._scout_semaphore.release()
-
         return removed
                 
     async def remove_by_cell_match(
@@ -334,7 +324,6 @@ class IVQueueManager:
         Remove ONE entry matching pokemon and S2 cell (for nearby_cell scouting).
         """
         removed = None
-        was_scouting = False
         async with self._queue_lock:
             for key, entry in list(self._entries.items()):
                 if entry.is_removed:
@@ -353,13 +342,7 @@ class IVQueueManager:
 
                 # Found match - remove
                 removed = self._remove_entry(key)
-                if removed:
-                    was_scouting = removed.is_scouting
                 break
-
-        # Release semaphore outside the lock if entry was scouting
-        if was_scouting:
-            self._scout_semaphore.release()
 
         return removed
 
@@ -367,11 +350,10 @@ class IVQueueManager:
         """
         Remove entry by key (internal, must hold lock).
 
-        If the entry was scouting (is_scouting=True), the caller MUST release
-        the semaphore after releasing the queue lock.
+        Decrements active scouts if the entry was scouting.
 
         Returns:
-            The removed entry (check entry.is_scouting to know if semaphore needs release)
+            The removed entry
         """
         if key not in self._entries:
             return None
@@ -380,9 +362,10 @@ class IVQueueManager:
         # Mark as removed for lazy deletion from heap
         entry.is_removed = True
 
-        # Decrement active scouts if this entry was holding a semaphore slot
+        # Decrement active scouts if this entry was scouting
         if entry.is_scouting:
             self._active_scouts = max(0, self._active_scouts - 1)
+            entry.is_scouting = False
 
         logger.debug(
             f"Removed from queue: {entry.pokemon_display} "
@@ -670,7 +653,7 @@ class IVQueueManager:
         """
         Get next highest priority entry not currently being scouted.
 
-        Uses semaphore to limit concurrent scouts.
+        Strictly respects active scouts limit (_active_scouts < _current_concurrency).
         Respects self-tuning circuit breaker state.
         Returns None if no entries available, paused, or at concurrency limit.
         """
@@ -678,25 +661,15 @@ class IVQueueManager:
         await self._evaluate_self_tuning()
         if self._tuning_status in ("PAUSED", "MANUALLY_PAUSED"):
             return None
-        # Try to acquire semaphore slot without blocking
-        acquired = self._scout_semaphore.locked()
-        if acquired:
-            # Semaphore is fully locked, check if we can get a slot
-            try:
-                # Non-blocking acquire attempt
-                got_slot = self._scout_semaphore._value > 0
-                if not got_slot:
-                    return None
-            except Exception:
-                return None
-
-        # Acquire the semaphore slot
-        await self._scout_semaphore.acquire()
 
         is_vip_only = (self._tuning_status == "THROTTLED" and AppConfig.suppress_auto_rarity_on_backlog)
         now = time.time()
 
         async with self._queue_lock:
+            # Check active scouts limit strictly against current concurrency
+            if self._active_scouts >= self._current_concurrency:
+                return None
+
             # Helper to check if entry is eligible under current tuning state
             def is_eligible(e: QueueEntry) -> bool:
                 if e.is_removed or e.is_scouting or e.was_scouted:
@@ -724,7 +697,6 @@ class IVQueueManager:
             )
 
             if eligible is None:
-                self._scout_semaphore.release()
                 return None
 
             eligible.is_scouting = True
@@ -951,7 +923,6 @@ class IVQueueManager:
         """
         current_time = int(time.time())
         removed_count = 0
-        semaphores_to_release = 0
 
         async with self._queue_lock:
             for key, entry in list(self._entries.items()):
@@ -962,18 +933,13 @@ class IVQueueManager:
                         f"[encounter_id: {entry.encounter_id}] - despawned while {state}"
                     )
 
-                    # Track if we need to release semaphore
                     if entry.is_scouting:
-                        semaphores_to_release += 1
                         self._active_scouts = max(0, self._active_scouts - 1)
+                        entry.is_scouting = False
 
                     entry.is_removed = True
                     del self._entries[key]
                     removed_count += 1
-
-        # Release semaphores outside the lock
-        for _ in range(semaphores_to_release):
-            self._scout_semaphore.release()
 
         if removed_count > 0:
             logger.opt(colors=True).info(
@@ -996,7 +962,6 @@ class IVQueueManager:
         """
         current_time = time.time()
         removed_count = 0
-        semaphores_to_release = 0
         timed_out_encounter_ids: list[str] = []
 
         async with self._queue_lock:
@@ -1004,8 +969,7 @@ class IVQueueManager:
                 # Check if scout started and exceeded timeout
                 if entry.scout_started_at:
                     elapsed = current_time - entry.scout_started_at
-                    # nearby_stop and nearby_cell scouting require worker travel/grid scan time (allow at least 300s)
-                    timeout_threshold = max(AppConfig.timeout_iv, 300) if entry.seen_type in ("nearby_stop", "nearby_cell") else AppConfig.timeout_iv
+                    timeout_threshold = max(AppConfig.timeout_iv, 10)
                     if elapsed > timeout_threshold:
                         logger.opt(colors=True).debug(
                             f"<red>[x]</red> Scout timeout: {entry.pokemon_display} in {entry.area} "
@@ -1017,10 +981,9 @@ class IVQueueManager:
                         pokemon_display = entry.pokemon_display
                         seen_type = entry.seen_type
 
-                        # Track if we need to release semaphore
                         if entry.is_scouting:
-                            semaphores_to_release += 1
                             self._active_scouts = max(0, self._active_scouts - 1)
+                            entry.is_scouting = False
 
                         entry.is_removed = True
                         del self._entries[key]
@@ -1032,10 +995,6 @@ class IVQueueManager:
                                 self._timeouts_by_pokemon[seen_type].get(pokemon_display, 0) + 1
                             )
 
-        # Release semaphores outside the lock
-        for _ in range(semaphores_to_release):
-            self._scout_semaphore.release()
-
         if removed_count > 0:
             ids_str = ", ".join(timed_out_encounter_ids) if timed_out_encounter_ids else "N/A"
             logger.opt(colors=True).info(
@@ -1046,7 +1005,7 @@ class IVQueueManager:
 
     async def reset_queue_and_stats(self) -> Dict[str, Any]:
         """
-        Reset queue entries, active scouts, semaphore, completed encounters,
+        Reset queue entries, active scouts, completed encounters,
         and all statistics counters.
         """
         async with self._queue_lock:
@@ -1054,8 +1013,6 @@ class IVQueueManager:
             self._heap.clear()
             self._entries.clear()
             self._active_scouts = 0
-            if self._scout_semaphore and self._current_concurrency > 0:
-                self._scout_semaphore = asyncio.Semaphore(self._current_concurrency)
 
             # Reset stats counters
             self._queued_by_type = {t: 0 for t in self._seen_types}
