@@ -266,8 +266,9 @@ class LazyIVQueueServer:
                 
             # Trigger reload
             changes = reload_config()
+            queue = await IVQueueManager.get_instance()
+            await queue.sync_self_tuning_config()
             if "concurrency_scout" in changes:
-                queue = await IVQueueManager.get_instance()
                 await queue.update_concurrency(changes["concurrency_scout"]["new"])
                 
             return web.json_response({"status": "success", "changes_count": len(changes), "changes": changes})
@@ -291,10 +292,11 @@ class LazyIVQueueServer:
         try:
             # Reload config values
             changes = reload_config()
+            queue = await IVQueueManager.get_instance()
+            await queue.sync_self_tuning_config()
             
             # If concurrency changed, update the queue semaphore
             if "concurrency_scout" in changes:
-                queue = await IVQueueManager.get_instance()
                 await queue.update_concurrency(changes["concurrency_scout"]["new"])
                 logger.info(
                     f"Scout concurrency updated: {changes['concurrency_scout']['old']} -> "
@@ -373,7 +375,8 @@ class LazyIVQueueServer:
             
             for key in ["enabled", "pending_backlog_seconds", "hard_pause_backlog_seconds", "pending_pause_duration", 
                         "awaiting_iv_drain_percent", "suppress_auto_rarity_on_backlog", "dynamic_concurrency_enabled", 
-                        "min_concurrency", "max_concurrency", "error_threshold_percent", "recovery_step_seconds"]:
+                        "min_concurrency", "error_threshold_percent", "recovery_step_seconds",
+                        "tuning_step_factor", "max_scout_percent"]:
                 if key in data:
                     full_config["self_tuning"][key] = data[key]
             

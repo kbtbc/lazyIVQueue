@@ -81,8 +81,8 @@ class RarityManager:
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         self._ranking_task = asyncio.create_task(self._ranking_loop())
 
-        thresh_fmt = f"{AppConfig.iv_threshold:.3%}" if AppConfig.auto_rarity_system == 'poracle' else f"{AppConfig.iv_threshold}"
-        cell_fmt = f"{AppConfig.cell_threshold:.3%}" if AppConfig.auto_rarity_system == 'poracle' else f"{AppConfig.cell_threshold}"
+        thresh_fmt = f"{AppConfig.iv_threshold:.4f}%" if AppConfig.auto_rarity_system == 'poracle' else f"{AppConfig.iv_threshold}"
+        cell_fmt = f"{AppConfig.cell_threshold:.4f}%" if AppConfig.auto_rarity_system == 'poracle' else f"{AppConfig.cell_threshold}"
         logger.info(
             f"RarityManager initialized ({AppConfig.auto_rarity_system.upper()} mode). "
             f"Calibration: {AppConfig.calibration_minutes} min, "
@@ -342,7 +342,7 @@ class RarityManager:
         total_pokemon = len(self._global_species_rankings)
         if AppConfig.auto_rarity_system == 'poracle':
             would_queue = sum(1 for pct in self._global_pct_cache.values() if pct <= AppConfig.iv_threshold)
-            thresh_log_str = f"{AppConfig.iv_threshold:.3%}"
+            thresh_log_str = f"{AppConfig.iv_threshold:.4f}%"
         else:
             would_queue = min(total_pokemon, int(AppConfig.iv_threshold))
             thresh_log_str = f"{int(AppConfig.iv_threshold)}"
@@ -370,7 +370,7 @@ class RarityManager:
         rare_count = 0
         if AppConfig.auto_rarity_system == 'poracle':
             rare_count = sum(1 for pct in self._global_pct_cache.values() if pct <= AppConfig.iv_threshold)
-            thresh_cond_str = f"pct<={AppConfig.iv_threshold:.3%}"
+            thresh_cond_str = f"pct<={AppConfig.iv_threshold:.4f}%"
         else:
             for area_rankings in self._rankings.values():
                 for idx, _ in enumerate(area_rankings):

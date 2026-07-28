@@ -92,9 +92,10 @@ awaiting_iv_drain_percent: int = self_tuning_config.get("awaiting_iv_drain_perce
 suppress_auto_rarity_on_backlog: bool = self_tuning_config.get("suppress_auto_rarity_on_backlog", True)
 dynamic_concurrency_enabled: bool = self_tuning_config.get("dynamic_concurrency_enabled", True)
 min_concurrency: int = self_tuning_config.get("min_concurrency", 1)
-max_concurrency: int = max(self_tuning_config.get("max_concurrency", concurrency_scout), concurrency_scout)
 error_threshold_percent: float = float(self_tuning_config.get("error_threshold_percent", 25.0))
 recovery_step_seconds: int = self_tuning_config.get("recovery_step_seconds", 30)
+tuning_step_factor: float = float(self_tuning_config.get("tuning_step_factor", 0.005))
+max_scout_percent: float = float(self_tuning_config.get("max_scout_percent", 1.0))
 
 def parse_ivlist(raw_list: List[str]) -> Dict[str, int]:
     """
@@ -122,8 +123,8 @@ def reload_config() -> Dict[str, any]:
     global concurrency_scout, timeout_iv, wild_scout_delay
     global geofence_expire_cache_seconds, geofence_refresh_cache_seconds
     global self_tuning_config, self_tuning_enabled, pending_backlog_seconds, hard_pause_backlog_seconds, pending_pause_duration
-    global awaiting_iv_drain_percent, suppress_auto_rarity_on_backlog, dynamic_concurrency_enabled, min_concurrency, max_concurrency
-    global error_threshold_percent, recovery_step_seconds
+    global awaiting_iv_drain_percent, suppress_auto_rarity_on_backlog, dynamic_concurrency_enabled, min_concurrency
+    global error_threshold_percent, recovery_step_seconds, tuning_step_factor, max_scout_percent
 
     changes = {}
 
@@ -243,9 +244,10 @@ def reload_config() -> Dict[str, any]:
         suppress_auto_rarity_on_backlog = self_tuning_config.get("suppress_auto_rarity_on_backlog", True)
         dynamic_concurrency_enabled = self_tuning_config.get("dynamic_concurrency_enabled", True)
         min_concurrency = self_tuning_config.get("min_concurrency", 1)
-        max_concurrency = max(self_tuning_config.get("max_concurrency", concurrency_scout), concurrency_scout)
         error_threshold_percent = float(self_tuning_config.get("error_threshold_percent", 25.0))
         recovery_step_seconds = self_tuning_config.get("recovery_step_seconds", 30)
+        tuning_step_factor = float(self_tuning_config.get("tuning_step_factor", 0.005))
+        max_scout_percent = float(self_tuning_config.get("max_scout_percent", 1.0))
 
     # Update the global config dict
     config = new_config

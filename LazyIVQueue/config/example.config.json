@@ -43,15 +43,16 @@
             "uncommon_percent": 1.0
         }
     },
-    "_comment_self_tuning": "Self-tuning queue circuit breaker and dynamic load tuning (adjusts auto-rarity filtering during backlogs while keeping all scouts active at max concurrency).",
+    "_comment_self_tuning": "Self-tuning queue circuit breaker and dynamic load tuning (adjusts auto-rarity filtering during backlogs while keeping scouts active).",
     "self_tuning": {
         "enabled": true,
         "pending_backlog_seconds": 45,
         "hard_pause_backlog_seconds": 180,
         "pending_pause_duration": 60,
         "awaiting_iv_drain_percent": 50,
-        "max_concurrency": 10,
-        "recovery_step_seconds": 30
+        "recovery_step_seconds": 30,
+        "tuning_step_factor": 0.005,
+        "max_scout_percent": 1.0
     },
     "_comment_koji": "Koji API settings for filtering and geofencing.",
     "koji": {
