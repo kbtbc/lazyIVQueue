@@ -84,7 +84,7 @@ class RarityManager:
         thresh_fmt = f"{AppConfig.iv_baseline_percent:.4f}%"
         cell_fmt = f"{AppConfig.cell_baseline_percent:.4f}%"
         logger.info(
-            f"RarityManager initialized (PORACLE mode). "
+            f"RarityManager initialized. "
             f"Calibration: {AppConfig.calibration_minutes} min, "
             f"IV baseline percent: {thresh_fmt}, "
             f"Cell baseline percent: {cell_fmt}"
@@ -467,7 +467,7 @@ class RarityManager:
             for idx, (pk, count) in enumerate(self._global_species_rankings[:50])
         ]
         
-        poracle_rankings = {
+        rarity_rankings = {
             "Ultra Rare": [],
             "Very Rare": [],
             "Rare": [],
@@ -481,16 +481,16 @@ class RarityManager:
             pct = (count / total_active_global) * 100
             pokemon_name = f"{get_pokemon_name(*map(int, pk.split(':')) if ':' in pk else (int(pk), None))} ({pk})"
             entry = {"pokemon": pokemon_name, "count": count, "pct": round(pct, 4), "rank": idx + 1}
-            if pct <= AppConfig.poracle_ultra_rare:
-                poracle_rankings["Ultra Rare"].append(entry)
-            elif pct <= AppConfig.poracle_very_rare:
-                poracle_rankings["Very Rare"].append(entry)
-            elif pct <= AppConfig.poracle_rare:
-                poracle_rankings["Rare"].append(entry)
-            elif pct <= AppConfig.poracle_uncommon:
-                poracle_rankings["Uncommon"].append(entry)
+            if pct <= AppConfig.rarity_ultra_rare:
+                rarity_rankings["Ultra Rare"].append(entry)
+            elif pct <= AppConfig.rarity_very_rare:
+                rarity_rankings["Very Rare"].append(entry)
+            elif pct <= AppConfig.rarity_rare:
+                rarity_rankings["Rare"].append(entry)
+            elif pct <= AppConfig.rarity_uncommon:
+                rarity_rankings["Uncommon"].append(entry)
             else:
-                poracle_rankings["Common"].append(entry)
+                rarity_rankings["Common"].append(entry)
 
         return {
             "status": self._status,
@@ -508,7 +508,7 @@ class RarityManager:
             "by_area": area_stats,
             "top_rarest_by_area": top_rarest,
             "top_rarest_global": top_rarest_global,
-            "poracle_rankings": poracle_rankings,
+            "rarity_rankings": rarity_rankings,
         }
 
     async def stop(self) -> None:

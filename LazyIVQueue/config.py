@@ -38,12 +38,12 @@ cell_baseline_percent: float = float(auto_rarity_config.get("cell_baseline_perce
 ranking_interval_seconds: int = auto_rarity_config.get("ranking_interval_seconds", 300)
 cleanup_interval_seconds: int = auto_rarity_config.get("cleanup_interval_seconds", 60)
 
-# Auto-rarity system settings
-poracle_config = auto_rarity_config.get("poracle", {})
-poracle_ultra_rare: float = poracle_config.get("ultra_rare_percent", 0.01)
-poracle_very_rare: float = poracle_config.get("very_rare_percent", 0.03)
-poracle_rare: float = poracle_config.get("rare_percent", 0.5)
-poracle_uncommon: float = poracle_config.get("uncommon_percent", 1.0)
+# Rarity tier thresholds (percentage of total active spawns)
+rarity_config = auto_rarity_config.get("rarity", {})
+rarity_ultra_rare: float = rarity_config.get("ultra_rare_percent", 0.01)
+rarity_very_rare: float = rarity_config.get("very_rare_percent", 0.03)
+rarity_rare: float = rarity_config.get("rare_percent", 0.5)
+rarity_uncommon: float = rarity_config.get("uncommon_percent", 1.0)
 
 # Koji
 koji_config = config.get("koji", {})
@@ -120,7 +120,7 @@ def reload_config() -> Dict[str, any]:
     global config, ivlist, celllist, ivlist_parsed, celllist_parsed, denylist, denylist_parsed
     global auto_rarity_config, auto_rarity_enabled, calibration_minutes, iv_baseline_percent, cell_baseline_percent
     global ranking_interval_seconds, cleanup_interval_seconds
-    global poracle_config, poracle_ultra_rare, poracle_very_rare, poracle_rare, poracle_uncommon
+    global rarity_config, rarity_ultra_rare, rarity_very_rare, rarity_rare, rarity_uncommon
     global concurrency_scout, timeout_iv, wild_scout_delay
     global geofence_expire_cache_seconds, geofence_refresh_cache_seconds
     global self_tuning_config, self_tuning_enabled, pending_backlog_seconds, hard_pause_backlog_seconds, pending_pause_duration
@@ -190,14 +190,15 @@ def reload_config() -> Dict[str, any]:
         changes["cleanup_interval_seconds"] = {"old": cleanup_interval_seconds, "new": new_cleanup_interval}
         cleanup_interval_seconds = new_cleanup_interval
 
-    new_poracle = new_auto_rarity.get("poracle", {})
-    if new_poracle != poracle_config:
-        changes["poracle_config"] = {"old": poracle_config, "new": new_poracle}
-        poracle_config = new_poracle
-        poracle_ultra_rare = poracle_config.get("ultra_rare_percent", 0.01)
-        poracle_very_rare = poracle_config.get("very_rare_percent", 0.03)
-        poracle_rare = poracle_config.get("rare_percent", 0.5)
-        poracle_uncommon = poracle_config.get("uncommon_percent", 1.0)
+    global rarity_config, rarity_ultra_rare, rarity_very_rare, rarity_rare, rarity_uncommon
+    new_rarity = new_auto_rarity.get("rarity", {})
+    if new_rarity != rarity_config:
+        changes["rarity_config"] = {"old": rarity_config, "new": new_rarity}
+        rarity_config = new_rarity
+        rarity_ultra_rare = rarity_config.get("ultra_rare_percent", 0.01)
+        rarity_very_rare = rarity_config.get("very_rare_percent", 0.03)
+        rarity_rare = rarity_config.get("rare_percent", 0.5)
+        rarity_uncommon = rarity_config.get("uncommon_percent", 1.0)
 
 
     # Track scout settings changes
@@ -296,10 +297,6 @@ concurrency_scout: int = scout_config.get("concurrency", 5)
 # Dragonite
 dragonite_config = config.get("dragonite", {})
 DRAGONITE_API_BASE_URL = dragonite_config.get("api_base_url", None)
-DRAGONITE_API_USERNAME = dragonite_config.get("api_username", None)
-DRAGONITE_API_PASSWORD = dragonite_config.get("api_password", None)
-DRAGONITE_API_KEY = dragonite_config.get("api_key", None)
-DRAGONITE_BEARER_KEY = dragonite_config.get("bearer_key", None)
 
 # LazyIVQueue Admin API
 server_config = config.get("server", {})

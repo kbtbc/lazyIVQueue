@@ -35,7 +35,7 @@
         "cell_baseline_percent": 0.005,
         "ranking_interval_seconds": 120,
         "cleanup_interval_seconds": 120,
-        "poracle": {
+        "rarity": {
             "ultra_rare_percent": 0.01,
             "very_rare_percent": 0.03,
             "rare_percent": 0.5,
@@ -78,10 +78,6 @@
     },
     "_comment_dragonite": "Dragonite API credentials for sending IV/cell scout requests.",
     "dragonite": {
-        "api_base_url": "",
-        "api_username": "",
-        "api_password": "",
-        "api_key": "",
-        "bearer_key": ""
+        "api_base_url": ""
     }
 }

@@ -38,9 +38,6 @@ All configuration is done via `config.json`.
 
 **Dragonite Scout API**
 - `dragonite.api_base_url` - Dragonite Scout API endpoint (e.g., `http://127.0.0.1:7272`)
-- `dragonite.api_username` / `dragonite.api_password` - Basic auth credentials (optional)
-- `dragonite.api_key` - API key auth (optional)
-- `dragonite.bearer_key` - Bearer token auth (optional)
 
 **Security**
 - `security.allowed_ips` - List of IPs allowed to POST webhooks (e.g., `["127.0.0.1", "192.168.1.100"]`)
@@ -82,7 +79,7 @@ All configuration is done via `config.json`.
 - `auto_rarity.cell_baseline_percent` - Cell scout baseline (default: 10)
 - `auto_rarity.ranking_interval_seconds` - How often to recalculate rankings (default: 120)
 - `auto_rarity.cleanup_interval_seconds` - How often to remove despawned Pokemon from tracking (default: 60)
-- `auto_rarity.poracle` - Thresholds for the auto-rarity rarity system. Represents top percentage of spawns:
+- `auto_rarity.rarity` - Thresholds for the auto-rarity rarity system. Represents top percentage of spawns:
   - `ultra_rare_percent` - Top X% (default: 0.01 = top 0.01%)
   - `very_rare_percent` - Top X% (default: 0.03)
   - `rare_percent` - Top X% (default: 0.5)
@@ -113,7 +110,7 @@ When `auto_rarity.enabled=true`, LazyIVQueue dynamically tracks Pokemon spawn ra
 
 ### Rarity System
 
-LazyIVQueue uses a percentage-based rarity system. Rarity is determined by the percentage of total active spawns globally. This mimics PoracleJS categories but numbered asc from rarest (1 = Unseen, 2 = Ultra Rare, 3 = Very Rare, 4 = Rare, 5 = Uncommon). Rarity level can be further fine-tuned below.
+LazyIVQueue uses a percentage-based rarity system. Rarity is determined by the percentage of total active spawns globally. Rarity level can be further fine-tuned below.
 
 Pokemon that fall under the `rare_percent` (or rarer) will be automatically queued, and the UI dashboard will show classifications using auto-rarity tier groupings.
 
@@ -121,7 +118,7 @@ Pokemon that fall under the `rare_percent` (or rarer) will be automatically queu
 ```json
 "auto_rarity": {
     "enabled": true,
-    "poracle": {
+    "rarity": {
         "ultra_rare_percent": 0.01,
         "very_rare_percent": 0.03,
         "rare_percent": 0.5,

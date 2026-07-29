@@ -608,7 +608,7 @@
 
         // Maps an entry's list_type to a display group + badge.
         // list_type values come from the backend: "ivlist", "celllist",
-        // "auto_rarity(rank=N)", "auto_rarity(poracle-ultra-rare, pct=0.0123)", "auto_rarity(unknown)"
+        // "auto_rarity(rank=N)", "auto_rarity(ultra-rare, pct=0.0123)", "auto_rarity(unknown)"
         function parseListType(listType) {
             const lt = listType || 'unknown';
             if (lt === 'ivlist') return { group: 'vip', label: 'IV', cls: 'bg-blue-100 text-blue-700 border border-blue-200' };
@@ -617,10 +617,10 @@
                 const detail = (lt.match(/auto_rarity\((.*)\)/) || [])[1] || '';
                 const pctMatch = detail.match(/pct=([\d.]+)/);
                 const pct = pctMatch ? ' · ' + pctMatch[1] + '%' : '';
-                if (detail.startsWith('poracle-ultra-rare')) return { group: 'rarity', label: 'Ultra Rare' + pct, cls: 'bg-purple-100 text-purple-700 border border-purple-200' };
-                if (detail.startsWith('poracle-very-rare')) return { group: 'rarity', label: 'Very Rare' + pct, cls: 'bg-rose-100 text-rose-700 border border-rose-200' };
-                if (detail.startsWith('poracle-rare')) return { group: 'rarity', label: 'Rare' + pct, cls: 'bg-orange-100 text-orange-700 border border-orange-200' };
-                if (detail.startsWith('poracle-uncommon')) return { group: 'rarity', label: 'Uncommon' + pct, cls: 'bg-yellow-100 text-yellow-700 border border-yellow-200' };
+                if (detail.startsWith('ultra-rare')) return { group: 'rarity', label: 'Ultra Rare' + pct, cls: 'bg-purple-100 text-purple-700 border border-purple-200' };
+                if (detail.startsWith('very-rare')) return { group: 'rarity', label: 'Very Rare' + pct, cls: 'bg-rose-100 text-rose-700 border border-rose-200' };
+                if (detail.startsWith('rare')) return { group: 'rarity', label: 'Rare' + pct, cls: 'bg-orange-100 text-orange-700 border border-orange-200' };
+                if (detail.startsWith('uncommon')) return { group: 'rarity', label: 'Uncommon' + pct, cls: 'bg-yellow-100 text-yellow-700 border border-yellow-200' };
                 const rankMatch = detail.match(/rank=(\d+)/);
                 if (rankMatch) return { group: 'rarity', label: 'Rank ' + rankMatch[1], cls: 'bg-indigo-100 text-indigo-700 border border-indigo-200' };
                 return { group: 'rarity', label: 'New/Unknown', cls: 'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200' };
@@ -847,14 +847,14 @@
                     document.getElementById('tracked-areas').textContent = data.rarity.areas_tracked || 0;
                     
                     
-                    // Render individual area rares or poracle ranks
+                    // Render individual area rares or rarity tiers
                     const areaRaresEl = document.getElementById('area-rares-list');
                     const titleTextEl = document.getElementById('rarity-rankings-title-text');
                     
                     let categoriesData = {};
                     let defaultExpandLimit = 5;
                     
-                    categoriesData = data.rarity.poracle_rankings || {};
+                    categoriesData = data.rarity.rarity_rankings || {};
                     titleTextEl.textContent = 'Auto-Rarity Rankings';
                     defaultExpandLimit = 10;
 

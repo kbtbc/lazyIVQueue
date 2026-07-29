@@ -302,11 +302,11 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
                 logger.debug(f"Auto Rarity: {pokemon.pokemon_display} unknown globally - treating as ultra rare")
             elif pct <= effective_max_pct:
                 priority = 1000 + int(pct * 10000)
-                if pct <= AppConfig.poracle_ultra_rare:
+                if pct <= AppConfig.rarity_ultra_rare:
                     list_type = f"auto_rarity(ultra-rare, pct={pct:.4f})"
-                elif pct <= AppConfig.poracle_very_rare:
+                elif pct <= AppConfig.rarity_very_rare:
                     list_type = f"auto_rarity(very-rare, pct={pct:.4f})"
-                elif pct <= AppConfig.poracle_rare:
+                elif pct <= AppConfig.rarity_rare:
                     list_type = f"auto_rarity(rare, pct={pct:.4f})"
                 else:
                     list_type = f"auto_rarity( pct={pct:.4f})"
