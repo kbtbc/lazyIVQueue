@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Optional, Set, List
 from aiohttp import web
 from LazyIVQueue.utils.logger import logger
@@ -11,6 +12,32 @@ from LazyIVQueue.rarity.manager import RarityManager
 from LazyIVQueue.queue.iv_queue import IVQueueManager
 import LazyIVQueue.config as AppConfig
 from LazyIVQueue.config import reload_config, CONFIG_PATH, CONFIG_EXAMPLE_PATH
+
+
+def _write_config_json(data: dict, filepath: str) -> None:
+    """Write config dict to file with lists kept on a single line.
+
+    Uses indent=4 for readability but collapses any array of strings
+    or numbers into a single line so that ivlist, celllist, denylist,
+    etc. stay compact.
+    """
+    raw = json.dumps(data, indent=4, ensure_ascii=False)
+    # Match multi-line arrays of strings/numbers and collapse them to one line.
+    # Pattern: opening bracket, then one or more lines each with a quoted string
+    # or number (with optional trailing comma and whitespace), then closing bracket.
+    def _collapse_array(match: re.Match[str]) -> str:
+        content = match.group(1)
+        # Join lines, strip extra whitespace, and wrap in brackets
+        collapsed = "[" + re.sub(r"\s+", " ", content).strip() + "]"
+        return collapsed
+
+    result = re.sub(
+        r'\[(\s*(?:"(?:[^"\\]|\\.)*"\s*,?\s*)+)\]',
+        _collapse_array,
+        raw,
+    )
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(result)
 
 
 class LazyIVQueueServer:
@@ -380,8 +407,7 @@ class LazyIVQueueServer:
                 if key in data:
                     full_config["self_tuning"][key] = data[key]
             
-            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-                json.dump(full_config, f, indent=4)
+            _write_config_json(full_config, CONFIG_PATH)
             
             changes = reload_config()
             queue = await IVQueueManager.get_instance()
