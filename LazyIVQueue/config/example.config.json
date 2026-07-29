@@ -43,18 +43,18 @@
     "self_tuning": {
         "enabled": true,
         "iv_baseline_percent": 0.03,
-        "cell_baseline_percent": 0.005,
-        "circuit_breaker": {
-            "stage1_backlog_seconds": 45,
-            "hard_pause_backlog_seconds": 120,
-            "min_hard_pause_duration": 60,
-            "worker_recovery_percent": 50.0
-        },
+        "cell_baseline_percent": 0.001,
         "tuning_interval_seconds": 30,
         "tuning_step_factor": 0.005,
         "max_scout_percent": 1.0,
         "too_many_workers_percent": 50.0,
-        "too_few_workers_percent": 15.0
+        "too_few_workers_percent": 15.0,
+		"circuit_breaker": {
+            "stage1_backlog_seconds": 45,
+            "hard_pause_backlog_seconds": 90,
+            "min_hard_pause_duration": 60,
+            "worker_recovery_percent": 50.0
+        }
     },
     "_comment_koji": "Koji API settings for filtering and geofencing.",
     "koji": {
