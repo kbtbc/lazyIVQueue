@@ -491,7 +491,7 @@ class IVQueueManager:
     @staticmethod
     def _baseline_scout_percent() -> float:
         """
-        Baseline scout percentage the tuner centres on (from auto_rarity.iv_baseline_percent).
+        Baseline scout percentage the tuner centres on (from self_tuning.iv_baseline_percent).
         """
         thresh = float(AppConfig.iv_baseline_percent)
         return thresh if thresh <= 1.0 else 0.03
@@ -519,7 +519,7 @@ class IVQueueManager:
     def _pause_drain_target(self) -> int:
         """Awaiting-IV count the circuit breaker must drain to before it releases."""
         base_iv = max(1, self._baseline_awaiting_iv)
-        return max(1, int(base_iv * (AppConfig.awaiting_iv_drain_percent / 100.0)))
+        return max(1, int(base_iv * (AppConfig.worker_recovery_percent / 100.0)))
 
     def _status_for_percent(self, pct: float, baseline: float) -> str:
         """Map current scout percent to a display status relative to baseline."""
@@ -638,7 +638,7 @@ class IVQueueManager:
             pause_elapsed = now - (self._pause_start_time or now)
             target_awaiting_iv = self._pause_drain_target()
 
-            time_condition = pause_elapsed >= AppConfig.pending_pause_duration
+            time_condition = pause_elapsed >= AppConfig.min_hard_pause_duration
             pending_condition = pending_count == 0
             awaiting_condition = current_awaiting_iv <= target_awaiting_iv
 
@@ -648,7 +648,7 @@ class IVQueueManager:
                 # No shedding while recovering - the queue is already empty.
                 self._tuning_status = "RECOVERING"
                 self._throttled_step = 0
-                self._current_scout_percent = max(0.001, round(baseline_pct * CIRCUIT_BREAKER_RELEASE_FACTOR, 4))
+                self._current_scout_percent = round(float(AppConfig.tuning_step_factor), 4)
                 self._pause_start_time = None
                 self._pending_backlog_start_time = None
                 self._pause_reason = ""
@@ -660,7 +660,7 @@ class IVQueueManager:
                 self._low_util_start_time = None
 
                 logger.opt(colors=True).info(
-                    f"<green>[Self-Tuning]</green> CIRCUIT BREAKER RELEASED: Pause duration ({pause_elapsed:.1f}s >= {AppConfig.pending_pause_duration}s), "
+                    f"<green>[Self-Tuning]</green> CIRCUIT BREAKER RELEASED: Pause duration ({pause_elapsed:.1f}s >= {AppConfig.min_hard_pause_duration}s), "
                     f"pending queue drained (0), and awaiting IV drained ({current_awaiting_iv} <= {target_awaiting_iv}). "
                     f"Queue entering RECOVERING state with conservative scout baseline ({self._current_scout_percent:.4f}%). All {self._current_concurrency} scouts active."
                 )
@@ -674,7 +674,7 @@ class IVQueueManager:
 
             # If we were BOOSTED above baseline, return to baseline if backlog persists or pending exceeds active scouts
             if self._current_scout_percent > baseline_pct:
-                if backlog_elapsed >= (AppConfig.pending_backlog_seconds * 0.5) or pending_count > max(1, self._current_concurrency):
+                if backlog_elapsed >= (AppConfig.stage1_backlog_seconds * 0.5) or pending_count > max(1, self._current_concurrency):
                     old_pct = self._current_scout_percent
                     self._current_scout_percent = baseline_pct
                     self._tuning_status = "NORMAL"
@@ -705,11 +705,11 @@ class IVQueueManager:
                 target = self._pause_drain_target()
                 logger.opt(colors=True).warning(
                     f"<red>[Self-Tuning]</red> CIRCUIT BREAKER TRIGGERED Stage 2: {self._pause_reason}. "
-                    f"Pausing dispatching & webhook queueing for min {AppConfig.pending_pause_duration}s until pending=0 and awaiting IV <= {target}. Purged {cleared} backlog entries."
+                    f"Pausing dispatching & webhook queueing for min {AppConfig.min_hard_pause_duration}s until pending=0 and awaiting IV <= {target}. Purged {cleared} backlog entries."
                 )
 
             # STAGE 1: Throttled / Dynamic Rarity Load Tuning (Stepping DOWN)
-            elif backlog_elapsed >= AppConfig.pending_backlog_seconds:
+            elif backlog_elapsed >= AppConfig.stage1_backlog_seconds:
                 # Check _throttled_step (not status) so a utilization-driven THROTTLED
                 # state (step 0) still triggers Stage 1 shedding when a real backlog forms
                 if self._throttled_step < 1:
@@ -719,7 +719,7 @@ class IVQueueManager:
                     self._current_scout_percent = max(0.001, round(self._current_scout_percent - step_delta, 4))
                     self._last_concurrency_adjustment_time = now
                     logger.opt(colors=True).warning(
-                        f"<yellow>[Self-Tuning]</yellow> STAGE 1 BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.pending_backlog_seconds}s). "
+                        f"<yellow>[Self-Tuning]</yellow> STAGE 1 BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.stage1_backlog_seconds}s). "
                         f"Tightening scout baseline ({old_pct:.4f}% -> {self._current_scout_percent:.4f}%). All {self._current_concurrency} scouts active."
                     )
                     self._shed_celllist_backlog()
@@ -740,7 +740,7 @@ class IVQueueManager:
                         f"All {self._current_concurrency} scouts active."
                     )
 
-            elif backlog_elapsed >= (AppConfig.pending_backlog_seconds * 0.5):
+            elif backlog_elapsed >= (AppConfig.stage1_backlog_seconds * 0.5):
                 if self._tuning_status == "NORMAL":
                     self._tuning_status = "BACKLOG_WARNING"
 
@@ -862,10 +862,10 @@ class IVQueueManager:
                 f"enabled={AppConfig.self_tuning_enabled}, "
                 f"step_factor={getattr(AppConfig, 'tuning_step_factor', 0.05)}, "
                 f"max_scout_pct={getattr(AppConfig, 'max_scout_percent', 0.20)}, "
-                f"backlog_sec={AppConfig.pending_backlog_seconds}s, "
+                f"backlog_sec={AppConfig.stage1_backlog_seconds}s, "
                 f"hard_pause_sec={AppConfig.hard_pause_backlog_seconds}s, "
-                f"pause_dur={AppConfig.pending_pause_duration}s, "
-                f"drain_pct={AppConfig.awaiting_iv_drain_percent}%, "
+                f"pause_dur={AppConfig.min_hard_pause_duration}s, "
+                f"drain_pct={AppConfig.worker_recovery_percent}%, "
                 f"tuning_interval={AppConfig.tuning_interval_seconds}s, "
                 f"worker_band={AppConfig.too_few_workers_percent:.0f}-{AppConfig.too_many_workers_percent:.0f}%"
             )
@@ -875,7 +875,7 @@ class IVQueueManager:
         now = time.time()
         backlog_elapsed = round(now - self._pending_backlog_start_time, 1) if self._pending_backlog_start_time else 0.0
         pause_elapsed = round(now - self._pause_start_time, 1) if self._pause_start_time else 0.0
-        pause_remaining = max(0.0, round(AppConfig.pending_pause_duration - pause_elapsed, 1)) if self._pause_start_time else 0.0
+        pause_remaining = max(0.0, round(AppConfig.min_hard_pause_duration - pause_elapsed, 1)) if self._pause_start_time else 0.0
         
         failed_scouts = self._recent_scout_outcomes.count(False)
         total_recent = max(1, len(self._recent_scout_outcomes))
@@ -887,10 +887,10 @@ class IVQueueManager:
             "throttled_step": self._throttled_step,
             "manual_pause": self._manual_pause,
             "current_concurrency": self._current_concurrency,
-            "pending_backlog_seconds_config": AppConfig.pending_backlog_seconds,
+            "pending_backlog_seconds_config": AppConfig.stage1_backlog_seconds,
             "hard_pause_backlog_seconds_config": AppConfig.hard_pause_backlog_seconds,
-            "pending_pause_duration_config": AppConfig.pending_pause_duration,
-            "awaiting_iv_drain_percent_config": AppConfig.awaiting_iv_drain_percent,
+            "pending_pause_duration_config": AppConfig.min_hard_pause_duration,
+            "awaiting_iv_drain_percent_config": AppConfig.worker_recovery_percent,
             "pending_backlog_elapsed_sec": backlog_elapsed,
             "pause_elapsed_sec": pause_elapsed,
             "pause_remaining_sec": pause_remaining,

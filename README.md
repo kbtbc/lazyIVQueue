@@ -75,10 +75,7 @@ All configuration is done via `config.json`.
 **Auto Rarity**
 - `auto_rarity.enabled` - Enable dynamic rarity-based queueing (default: `false`)
 - `auto_rarity.calibration_minutes` - Minutes to collect spawn data before rankings are used (default: 5)
-- `auto_rarity.iv_baseline_percent` - Queue Pokemon with rarity rank below this (default: 50, lower = rarer)
-- `auto_rarity.cell_baseline_percent` - Cell scout baseline (default: 10)
-- `auto_rarity.ranking_interval_seconds` - How often to recalculate rankings (default: 120)
-- `auto_rarity.cleanup_interval_seconds` - How often to remove despawned Pokemon from tracking (default: 60)
+- `auto_rarity.ranking_interval_seconds` - How often to cleanup expired spawns and recalculate rankings (default: 120)
 - `auto_rarity.rarity` - Thresholds for the auto-rarity rarity system. Represents top percentage of spawns:
   - `ultra_rare_percent` - Top X% (default: 0.01 = top 0.01%)
   - `very_rare_percent` - Top X% (default: 0.03)
@@ -87,10 +84,12 @@ All configuration is done via `config.json`.
 
 **Self-Tuning Queue**
 - `self_tuning.enabled` - Enable dynamic queue tuning (default: `true`)
-- `self_tuning.pending_backlog_seconds` - Seconds of pending backlog before Stage 1 load shedding (default: 45)
-- `self_tuning.hard_pause_backlog_seconds` - Seconds of pending backlog before hard circuit breaker pause (default: 180)
-- `self_tuning.pending_pause_duration` - Minimum pause duration in seconds (default: 60)
-- `self_tuning.awaiting_iv_drain_percent` - Percentage of awaiting-IV workers to drain before circuit breaker release (default: 50)
+- `self_tuning.iv_baseline_percent` - Baseline percentage of rarest spawns to scout (e.g. 0.03 = top 3.0%)
+- `self_tuning.cell_baseline_percent` - Cell scout baseline (default: 0.01)
+- `self_tuning.circuit_breaker.stage1_backlog_seconds` - Seconds of pending backlog before Stage 1 load shedding (default: 45)
+- `self_tuning.circuit_breaker.hard_pause_backlog_seconds` - Seconds of pending backlog before hard circuit breaker pause (default: 180)
+- `self_tuning.circuit_breaker.min_hard_pause_duration` - Minimum hard pause duration in seconds (default: 60)
+- `self_tuning.circuit_breaker.worker_recovery_percent` - Percentage of awaiting-IV workers to drain before circuit breaker release (default: 50)
 - `self_tuning.tuning_interval_seconds` - Time horizon for tuning decisions (default: 30)
 - `self_tuning.tuning_step_factor` - Step size for adjusting scout baseline percentage (default: 0.005)
 - `self_tuning.max_scout_percent` - Maximum scout baseline percentage (default: 1.0)

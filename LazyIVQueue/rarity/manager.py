@@ -52,7 +52,6 @@ class RarityManager:
         self._initialized: bool = False
 
         # Background tasks
-        self._cleanup_task: Optional[asyncio.Task] = None
         self._ranking_task: Optional[asyncio.Task] = None
 
         # Stats
@@ -78,7 +77,6 @@ class RarityManager:
         self._start_time = time.time()
 
         # Start background tasks
-        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         self._ranking_task = asyncio.create_task(self._ranking_loop())
 
         thresh_fmt = f"{AppConfig.iv_baseline_percent:.4f}%"
@@ -225,18 +223,6 @@ class RarityManager:
         """Get current status (CALIBRATING or READY)."""
         return self._status
 
-    async def _cleanup_loop(self) -> None:
-        """Background task to remove expired spawns."""
-        while True:
-            try:
-                await asyncio.sleep(AppConfig.cleanup_interval_seconds)
-                await self._cleanup_expired()
-            except asyncio.CancelledError:
-                logger.debug("Rarity cleanup task cancelled")
-                break
-            except Exception as e:
-                logger.error(f"Error in rarity cleanup loop: {e}")
-
     async def _cleanup_expired(self) -> int:
         """Remove spawns that have despawned."""
         current_time = int(time.time())
@@ -267,10 +253,11 @@ class RarityManager:
         return removed_count
 
     async def _ranking_loop(self) -> None:
-        """Background task to recalculate rankings."""
+        """Background task to clean up expired spawns and recalculate rankings."""
         while True:
             try:
                 await asyncio.sleep(AppConfig.ranking_interval_seconds)
+                await self._cleanup_expired()
                 await self._recalculate_rankings()
 
                 # Check if calibration is complete
@@ -513,13 +500,6 @@ class RarityManager:
 
     async def stop(self) -> None:
         """Stop background tasks."""
-        if self._cleanup_task:
-            self._cleanup_task.cancel()
-            try:
-                await self._cleanup_task
-            except asyncio.CancelledError:
-                pass
-
         if self._ranking_task:
             self._ranking_task.cancel()
             try:

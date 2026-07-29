@@ -32,11 +32,8 @@ log_file = log_config.get("file", False)
 auto_rarity_config = config.get("auto_rarity", {})
 auto_rarity_enabled: bool = auto_rarity_config.get("enabled", False)
 
-calibration_minutes: int = auto_rarity_config.get("calibration_minutes", 5)
-iv_baseline_percent: float = float(auto_rarity_config.get("iv_baseline_percent", 0.03))
-cell_baseline_percent: float = float(auto_rarity_config.get("cell_baseline_percent", 0.01))
-ranking_interval_seconds: int = auto_rarity_config.get("ranking_interval_seconds", 300)
-cleanup_interval_seconds: int = auto_rarity_config.get("cleanup_interval_seconds", 60)
+calibration_minutes: int = auto_rarity_config.get("calibration_minutes", 3)
+ranking_interval_seconds: int = auto_rarity_config.get("ranking_interval_seconds", 120)
 
 # Rarity tier thresholds (percentage of total active spawns)
 rarity_config = auto_rarity_config.get("rarity", {})
@@ -84,10 +81,13 @@ concurrency_scout: int = scout_config.get("concurrency", 5)
 # Self-Tuning Queue settings
 self_tuning_config = config.get("self_tuning", {})
 self_tuning_enabled: bool = self_tuning_config.get("enabled", True)
-pending_backlog_seconds: int = self_tuning_config.get("pending_backlog_seconds", 45)
-hard_pause_backlog_seconds: int = self_tuning_config.get("hard_pause_backlog_seconds", 180)
-pending_pause_duration: int = self_tuning_config.get("pending_pause_duration", 60)
-awaiting_iv_drain_percent: int = self_tuning_config.get("awaiting_iv_drain_percent", 50)
+iv_baseline_percent: float = float(self_tuning_config.get("iv_baseline_percent", 0.03))
+cell_baseline_percent: float = float(self_tuning_config.get("cell_baseline_percent", 0.005))
+circuit_breaker_config = self_tuning_config.get("circuit_breaker", {})
+stage1_backlog_seconds: int = circuit_breaker_config.get("stage1_backlog_seconds", 45)
+hard_pause_backlog_seconds: int = circuit_breaker_config.get("hard_pause_backlog_seconds", 120)
+min_hard_pause_duration: int = circuit_breaker_config.get("min_hard_pause_duration", 60)
+worker_recovery_percent: int = circuit_breaker_config.get("worker_recovery_percent", 50)
 # tuning_interval_seconds: time horizon for tuning decisions
 tuning_interval_seconds: int = self_tuning_config.get("tuning_interval_seconds", 30)
 tuning_step_factor: float = float(self_tuning_config.get("tuning_step_factor", 0.005))
@@ -96,7 +96,7 @@ max_scout_percent: float = float(self_tuning_config.get("max_scout_percent", 1.0
 # too_many_workers_percent of concurrency for a full tuning interval; throttle up when at/below
 # too_few_workers_percent. In between, hold steady (equilibrium).
 too_many_workers_percent: float = float(self_tuning_config.get("too_many_workers_percent", 50.0))
-too_few_workers_percent: float = float(self_tuning_config.get("too_few_workers_percent", 5.0))
+too_few_workers_percent: float = float(self_tuning_config.get("too_few_workers_percent", 15.0))
 
 def parse_ivlist(raw_list: List[str]) -> Dict[str, int]:
     """
@@ -118,12 +118,13 @@ def reload_config() -> Dict[str, any]:
     Hot-reload config.json values without restarting the application.
     """
     global config, ivlist, celllist, ivlist_parsed, celllist_parsed, denylist, denylist_parsed
-    global auto_rarity_config, auto_rarity_enabled, calibration_minutes, iv_baseline_percent, cell_baseline_percent
-    global ranking_interval_seconds, cleanup_interval_seconds
+    global auto_rarity_config, auto_rarity_enabled, calibration_minutes
+    global ranking_interval_seconds
     global rarity_config, rarity_ultra_rare, rarity_very_rare, rarity_rare, rarity_uncommon
     global concurrency_scout, timeout_iv, wild_scout_delay
     global geofence_expire_cache_seconds, geofence_refresh_cache_seconds
-    global self_tuning_config, self_tuning_enabled, pending_backlog_seconds, hard_pause_backlog_seconds, pending_pause_duration
+    global self_tuning_config, self_tuning_enabled, iv_baseline_percent, cell_baseline_percent
+    global circuit_breaker_config, stage1_backlog_seconds, hard_pause_backlog_seconds, min_hard_pause_duration, worker_recovery_percent
     global tuning_interval_seconds, tuning_step_factor, max_scout_percent
     global too_many_workers_percent, too_few_workers_percent
 
@@ -163,32 +164,15 @@ def reload_config() -> Dict[str, any]:
     
 
 
-    new_calibration = new_auto_rarity.get("calibration_minutes", 5)
+    new_calibration = new_auto_rarity.get("calibration_minutes", 3)
     if new_calibration != calibration_minutes:
         changes["calibration_minutes"] = {"old": calibration_minutes, "new": new_calibration}
         calibration_minutes = new_calibration
 
-    global iv_baseline_percent
-    new_iv_baseline = float(new_auto_rarity.get("iv_baseline_percent", 0.03))
-    if new_iv_baseline != iv_baseline_percent:
-        changes["iv_baseline_percent"] = {"old": iv_baseline_percent, "new": new_iv_baseline}
-        iv_baseline_percent = new_iv_baseline
-
-    global cell_baseline_percent
-    new_cell_baseline = float(new_auto_rarity.get("cell_baseline_percent", 0.01))
-    if new_cell_baseline != cell_baseline_percent:
-        changes["cell_baseline_percent"] = {"old": cell_baseline_percent, "new": new_cell_baseline}
-        cell_baseline_percent = new_cell_baseline
-
-    new_ranking_interval = new_auto_rarity.get("ranking_interval_seconds", 300)
+    new_ranking_interval = new_auto_rarity.get("ranking_interval_seconds", 120)
     if new_ranking_interval != ranking_interval_seconds:
         changes["ranking_interval_seconds"] = {"old": ranking_interval_seconds, "new": new_ranking_interval}
         ranking_interval_seconds = new_ranking_interval
-
-    new_cleanup_interval = new_auto_rarity.get("cleanup_interval_seconds", 60)
-    if new_cleanup_interval != cleanup_interval_seconds:
-        changes["cleanup_interval_seconds"] = {"old": cleanup_interval_seconds, "new": new_cleanup_interval}
-        cleanup_interval_seconds = new_cleanup_interval
 
     global rarity_config, rarity_ultra_rare, rarity_very_rare, rarity_rare, rarity_uncommon
     new_rarity = new_auto_rarity.get("rarity", {})
@@ -235,15 +219,18 @@ def reload_config() -> Dict[str, any]:
         changes["self_tuning"] = {"old": self_tuning_config, "new": new_tuning}
         self_tuning_config = new_tuning
         self_tuning_enabled = self_tuning_config.get("enabled", True)
-        pending_backlog_seconds = self_tuning_config.get("pending_backlog_seconds", 45)
-        hard_pause_backlog_seconds = self_tuning_config.get("hard_pause_backlog_seconds", 180)
-        pending_pause_duration = self_tuning_config.get("pending_pause_duration", 60)
-        awaiting_iv_drain_percent = self_tuning_config.get("awaiting_iv_drain_percent", 50)
+        iv_baseline_percent = float(self_tuning_config.get("iv_baseline_percent", 0.03))
+        cell_baseline_percent = float(self_tuning_config.get("cell_baseline_percent", 0.005))
+        circuit_breaker_config = self_tuning_config.get("circuit_breaker", {})
+        stage1_backlog_seconds = circuit_breaker_config.get("stage1_backlog_seconds", 45)
+        hard_pause_backlog_seconds = circuit_breaker_config.get("hard_pause_backlog_seconds", 120)
+        min_hard_pause_duration = circuit_breaker_config.get("min_hard_pause_duration", 60)
+        worker_recovery_percent = circuit_breaker_config.get("worker_recovery_percent", 50)
         tuning_interval_seconds = self_tuning_config.get("tuning_interval_seconds", 30)
         tuning_step_factor = float(self_tuning_config.get("tuning_step_factor", 0.005))
         max_scout_percent = float(self_tuning_config.get("max_scout_percent", 1.0))
         too_many_workers_percent = float(self_tuning_config.get("too_many_workers_percent", 50.0))
-        too_few_workers_percent = float(self_tuning_config.get("too_few_workers_percent", 5.0))
+        too_few_workers_percent = float(self_tuning_config.get("too_few_workers_percent", 15.0))
 
     # Update the global config dict
     config = new_config
