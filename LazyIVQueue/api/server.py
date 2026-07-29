@@ -405,7 +405,7 @@ class LazyIVQueueServer:
                         "too_many_workers_percent", "too_few_workers_percent"]:
                 if key in data:
                     full_config["self_tuning"][key] = data[key]
-            for key in ["stage1_backlog_seconds", "hard_pause_backlog_seconds", "min_hard_pause_duration",
+            for key in ["throttle_backlog_seconds", "hard_pause_backlog_seconds", "min_hard_pause_duration",
                         "worker_recovery_percent"]:
                 if key in data:
                     full_config["self_tuning"][key] = data[key]

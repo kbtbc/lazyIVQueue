@@ -84,7 +84,7 @@ self_tuning_enabled: bool = self_tuning_config.get("enabled", True)
 iv_baseline_percent: float = float(self_tuning_config.get("iv_baseline_percent", 0.03))
 cell_baseline_percent: float = float(self_tuning_config.get("cell_baseline_percent", 0.005))
 circuit_breaker_config = self_tuning_config.get("circuit_breaker", {})
-stage1_backlog_seconds: int = circuit_breaker_config.get("stage1_backlog_seconds", 45)
+throttle_backlog_seconds: int = circuit_breaker_config.get("throttle_backlog_seconds", 45)
 hard_pause_backlog_seconds: int = circuit_breaker_config.get("hard_pause_backlog_seconds", 120)
 min_hard_pause_duration: int = circuit_breaker_config.get("min_hard_pause_duration", 60)
 worker_recovery_percent: int = circuit_breaker_config.get("worker_recovery_percent", 50)
@@ -124,7 +124,7 @@ def reload_config() -> Dict[str, any]:
     global concurrency_scout, timeout_iv, wild_scout_delay
     global geofence_expire_cache_seconds, geofence_refresh_cache_seconds
     global self_tuning_config, self_tuning_enabled, iv_baseline_percent, cell_baseline_percent
-    global circuit_breaker_config, stage1_backlog_seconds, hard_pause_backlog_seconds, min_hard_pause_duration, worker_recovery_percent
+    global circuit_breaker_config, throttle_backlog_seconds, hard_pause_backlog_seconds, min_hard_pause_duration, worker_recovery_percent
     global tuning_interval_seconds, tuning_step_factor, max_scout_percent
     global too_many_workers_percent, too_few_workers_percent
 
@@ -222,7 +222,7 @@ def reload_config() -> Dict[str, any]:
         iv_baseline_percent = float(self_tuning_config.get("iv_baseline_percent", 0.03))
         cell_baseline_percent = float(self_tuning_config.get("cell_baseline_percent", 0.005))
         circuit_breaker_config = self_tuning_config.get("circuit_breaker", {})
-        stage1_backlog_seconds = circuit_breaker_config.get("stage1_backlog_seconds", 45)
+        throttle_backlog_seconds = circuit_breaker_config.get("throttle_backlog_seconds", 45)
         hard_pause_backlog_seconds = circuit_breaker_config.get("hard_pause_backlog_seconds", 120)
         min_hard_pause_duration = circuit_breaker_config.get("min_hard_pause_duration", 60)
         worker_recovery_percent = circuit_breaker_config.get("worker_recovery_percent", 50)

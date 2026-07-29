@@ -379,8 +379,9 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
         return
 
     if queue._tuning_status == "THROTTLED":
-        if queue._throttled_step >= 1 and (seen_type == "nearby_cell" or list_type == "celllist"):
-            logger.trace(f"Stage 1 Step {queue._throttled_step} throttled: suppressing celllist webhook for {pokemon.pokemon_display}")
+        # During Stage 1 throttling, only allow ivlist entries
+        if queue._throttled_step >= 1 and list_type != "ivlist":
+            logger.trace(f"Stage 1 throttled: rejecting non-ivlist entry {pokemon.pokemon_display} (list_type={list_type})")
             return
         if queue._throttled_step >= 2 and (list_type or "").startswith("auto_rarity"):
             logger.trace(f"Stage 1 Step {queue._throttled_step} throttled: suppressing auto_rarity webhook for {pokemon.pokemon_display}")

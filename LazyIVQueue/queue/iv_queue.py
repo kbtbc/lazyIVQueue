@@ -133,6 +133,7 @@ class IVQueueManager:
         # Load-shedding stage, only ever set by the backlog path:
         # 0 = no shedding, 1 = celllist shed, 2 = auto-rarity shed
         self._throttled_step: int = 0
+        self._pause_rarity_during_throttle: bool = False
         self._current_scout_percent: float = self._baseline_scout_percent()
         self._manual_pause: bool = False
         self._pending_backlog_start_time: Optional[float] = None
@@ -456,6 +457,23 @@ class IVQueueManager:
             )
         return shed_count
 
+    def _aggressive_purge_non_ivlist(self) -> int:
+        """Aggressively purge all non-ivlist entries during Stage 1 throttling."""
+        shed_count = 0
+        for key, entry in list(self._entries.items()):
+            if entry.is_removed or entry.is_scouting or entry.was_scouted:
+                continue
+            # Keep only ivlist entries
+            if entry.list_type != "ivlist":
+                entry.is_removed = True
+                del self._entries[key]
+                shed_count += 1
+        if shed_count > 0:
+            logger.opt(colors=True).warning(
+                f"<yellow>[Self-Tuning]</yellow> AGGRESSIVE STAGE 1: Purged {shed_count} non-ivlist entries. Only ivlist tracking continues."
+            )
+        return shed_count
+
     def _shed_auto_rarity_backlog(self) -> int:
         """Purge unscouted auto-rarity entries during Stage 1 Step 2 load shedding."""
         shed_count = 0
@@ -504,6 +522,7 @@ class IVQueueManager:
         """
         self._tuning_status = "NORMAL"
         self._throttled_step = 0
+        self._pause_rarity_during_throttle = False
         self._current_scout_percent = self._baseline_scout_percent()
         self._last_baseline_pct = self._current_scout_percent
         self._pending_backlog_start_time = None
@@ -675,7 +694,7 @@ class IVQueueManager:
 
             # If we were BOOSTED above baseline, return to baseline if backlog persists or pending exceeds active scouts
             if self._current_scout_percent > baseline_pct:
-                if backlog_elapsed >= (AppConfig.stage1_backlog_seconds * 0.5) or pending_count > max(1, self._current_concurrency):
+                if backlog_elapsed >= (AppConfig.throttle_backlog_seconds * 0.5) or pending_count > max(1, self._current_concurrency):
                     old_pct = self._current_scout_percent
                     self._current_scout_percent = baseline_pct
                     self._tuning_status = "NORMAL"
@@ -710,7 +729,7 @@ class IVQueueManager:
                 )
 
             # STAGE 1: Throttled / Dynamic Rarity Load Tuning (Stepping DOWN)
-            elif backlog_elapsed >= AppConfig.stage1_backlog_seconds:
+            elif backlog_elapsed >= AppConfig.throttle_backlog_seconds:
                 # Check _throttled_step (not status) so a utilization-driven THROTTLED
                 # state (step 0) still triggers Stage 1 shedding when a real backlog forms
                 if self._throttled_step < 1:
@@ -720,10 +739,13 @@ class IVQueueManager:
                     self._current_scout_percent = max(0.001, round(self._current_scout_percent - step_delta, 4))
                     self._last_concurrency_adjustment_time = now
                     logger.opt(colors=True).warning(
-                        f"<yellow>[Self-Tuning]</yellow> STAGE 1 BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.stage1_backlog_seconds}s). "
+                        f"<yellow>[Self-Tuning]</yellow> STAGE 1 BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.throttle_backlog_seconds}s). "
                         f"Tightening scout baseline ({old_pct:.4f}% -> {self._current_scout_percent:.4f}%). All {self._current_concurrency} scouts active."
                     )
-                    self._shed_celllist_backlog()
+                    # Aggressively purge all non-ivlist entries
+                    self._aggressive_purge_non_ivlist()
+                    # Pause rarity recalculations
+                    self._pause_rarity_during_throttle = True
 
                 # Step down scout percentage further if backlog persists
                 elif (now - self._last_concurrency_adjustment_time) >= AppConfig.tuning_interval_seconds:
@@ -741,7 +763,7 @@ class IVQueueManager:
                         f"All {self._current_concurrency} scouts active."
                     )
 
-            elif backlog_elapsed >= (AppConfig.stage1_backlog_seconds * 0.5):
+            elif backlog_elapsed >= (AppConfig.throttle_backlog_seconds * 0.5):
                 if self._tuning_status == "NORMAL":
                     self._tuning_status = "BACKLOG_WARNING"
 
@@ -757,6 +779,7 @@ class IVQueueManager:
             # Clearing this is what keeps a stale step from an earlier backlog out of the
             # utilization-driven path (where it would silently shed celllist/auto-rarity).
             self._throttled_step = 0
+            self._pause_rarity_during_throttle = False
 
             if self._tuning_status == "BACKLOG_WARNING":
                 self._tuning_status = self._status_for_percent(self._current_scout_percent, baseline_pct)
@@ -863,7 +886,7 @@ class IVQueueManager:
                 f"enabled={AppConfig.self_tuning_enabled}, "
                 f"step_factor={getattr(AppConfig, 'tuning_step_factor', 0.05)}, "
                 f"max_scout_pct={getattr(AppConfig, 'max_scout_percent', 0.20)}, "
-                f"backlog_sec={AppConfig.stage1_backlog_seconds}s, "
+                f"throttle_backlog_sec={AppConfig.throttle_backlog_seconds}s, "
                 f"hard_pause_sec={AppConfig.hard_pause_backlog_seconds}s, "
                 f"pause_dur={AppConfig.min_hard_pause_duration}s, "
                 f"drain_pct={AppConfig.worker_recovery_percent}%, "
@@ -888,7 +911,7 @@ class IVQueueManager:
             "throttled_step": self._throttled_step,
             "manual_pause": self._manual_pause,
             "current_concurrency": self._current_concurrency,
-            "pending_backlog_seconds_config": AppConfig.stage1_backlog_seconds,
+            "throttle_backlog_seconds_config": AppConfig.throttle_backlog_seconds,
             "hard_pause_backlog_seconds_config": AppConfig.hard_pause_backlog_seconds,
             "pending_pause_duration_config": AppConfig.min_hard_pause_duration,
             "awaiting_iv_drain_percent_config": AppConfig.worker_recovery_percent,

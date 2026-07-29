@@ -86,7 +86,7 @@ All configuration is done via `config.json`.
 - `self_tuning.enabled` - Enable dynamic queue tuning (default: `true`)
 - `self_tuning.iv_baseline_percent` - Baseline percentage of rarest spawns to scout (e.g. 0.03 = top 3.0%)
 - `self_tuning.cell_baseline_percent` - Cell scout baseline (default: 0.01)
-- `self_tuning.circuit_breaker.stage1_backlog_seconds` - Seconds of pending backlog before Stage 1 load shedding (default: 45)
+- `self_tuning.circuit_breaker.throttle_backlog_seconds` - Seconds of pending backlog before Stage 1 load shedding (default: 45)
 - `self_tuning.circuit_breaker.hard_pause_backlog_seconds` - Seconds of pending backlog before hard circuit breaker pause (default: 180)
 - `self_tuning.circuit_breaker.min_hard_pause_duration` - Minimum hard pause duration in seconds (default: 60)
 - `self_tuning.circuit_breaker.worker_recovery_percent` - Percentage of awaiting-IV workers to drain before circuit breaker release (default: 50)

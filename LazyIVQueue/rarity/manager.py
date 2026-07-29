@@ -257,6 +257,14 @@ class RarityManager:
         while True:
             try:
                 await asyncio.sleep(AppConfig.ranking_interval_seconds)
+                
+                # Check if rarity recalculations are paused due to stage 1 throttling
+                from LazyIVQueue.queue.iv_queue import IVQueueManager
+                queue = await IVQueueManager.get_instance()
+                if queue._pause_rarity_during_throttle:
+                    logger.debug("Rarity recalculations paused during Stage 1 throttling")
+                    continue
+                
                 await self._cleanup_expired()
                 await self._recalculate_rankings()
 

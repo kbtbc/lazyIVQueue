@@ -50,7 +50,7 @@
         "too_many_workers_percent": 50.0,
         "too_few_workers_percent": 15.0,
 		"circuit_breaker": {
-            "stage1_backlog_seconds": 45,
+            "throttle_backlog_seconds": 45,
             "hard_pause_backlog_seconds": 90,
             "min_hard_pause_duration": 60,
             "worker_recovery_percent": 50.0
