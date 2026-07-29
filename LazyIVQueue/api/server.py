@@ -288,8 +288,8 @@ class LazyIVQueueServer:
             except json.JSONDecodeError as e:
                 return web.json_response({"error": f"Invalid JSON: {e}"}, status=400)
                 
-            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-                f.write(data)
+            full_config = json.loads(data)
+            _write_config_json(full_config, CONFIG_PATH)
                 
             # Trigger reload
             changes = reload_config()
