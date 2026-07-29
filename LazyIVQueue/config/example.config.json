@@ -27,15 +27,15 @@
         "151"
     ],
     "denylist": [],
-    "_comment_auto_rarity": "Dynamically calculates rarity based on spawn frequency using Poracle percentage thresholds. system can be 'poracle' or 'lazy'. iv_threshold defines the baseline percentage of rarest spawns scouted (e.g. 0.03 = 3.0%), cell_threshold for cell scouts (0.01 = 1.0%).",
+    "_comment_auto_rarity": "Dynamically calculates rarity based on spawn frequency using auto-rarity baseline percentages. system can be 'poracle' or 'lazy'. iv_baseline_percent defines the baseline percentage of rarest spawns scouted (e.g. 0.03 = 3.0%), cell_baseline_percent for cell scouts (0.01 = 1.0%).",
     "auto_rarity": {
         "enabled": false,
         "system": "poracle",
         "calibration_minutes": 5,
-        "iv_threshold": 0.03,
-        "cell_threshold": 0.01,
+        "iv_baseline_percent": 0.03,
+        "cell_baseline_percent": 0.005,
         "ranking_interval_seconds": 120,
-        "cleanup_interval_seconds": 60,
+        "cleanup_interval_seconds": 120,
         "poracle": {
             "ultra_rare_percent": 0.01,
             "very_rare_percent": 0.03,
@@ -54,7 +54,7 @@
         "tuning_step_factor": 0.005,
         "max_scout_percent": 1.0,
         "too_many_workers_percent": 50,
-        "too_few_workers_percent": 5
+        "too_few_workers_percent": 15
     },
     "_comment_koji": "Koji API settings for filtering and geofencing.",
     "koji": {

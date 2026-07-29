@@ -34,12 +34,12 @@ auto_rarity_enabled: bool = auto_rarity_config.get("enabled", False)
 auto_rarity_system: str = auto_rarity_config.get("system", "poracle")
 
 calibration_minutes: int = auto_rarity_config.get("calibration_minutes", 5)
-iv_threshold: float = float(auto_rarity_config.get("iv_threshold", 0.03))
-cell_threshold: float = float(auto_rarity_config.get("cell_threshold", 0.01))
+iv_baseline_percent: float = float(auto_rarity_config.get("iv_baseline_percent", 0.03))
+cell_baseline_percent: float = float(auto_rarity_config.get("cell_baseline_percent", 0.01))
 ranking_interval_seconds: int = auto_rarity_config.get("ranking_interval_seconds", 300)
 cleanup_interval_seconds: int = auto_rarity_config.get("cleanup_interval_seconds", 60)
 
-# Poracle system settings
+# Auto-rarity system settings
 poracle_config = auto_rarity_config.get("poracle", {})
 poracle_ultra_rare: float = poracle_config.get("ultra_rare_percent", 0.01)
 poracle_very_rare: float = poracle_config.get("very_rare_percent", 0.03)
@@ -120,7 +120,7 @@ def reload_config() -> Dict[str, any]:
     Hot-reload config.json values without restarting the application.
     """
     global config, ivlist, celllist, ivlist_parsed, celllist_parsed, denylist, denylist_parsed
-    global auto_rarity_config, auto_rarity_enabled, calibration_minutes, iv_threshold, cell_threshold
+    global auto_rarity_config, auto_rarity_enabled, calibration_minutes, iv_baseline_percent, cell_baseline_percent
     global ranking_interval_seconds, cleanup_interval_seconds
     global poracle_config, poracle_ultra_rare, poracle_very_rare, poracle_rare, poracle_uncommon
     global concurrency_scout, timeout_iv, wild_scout_delay
@@ -175,17 +175,17 @@ def reload_config() -> Dict[str, any]:
         changes["calibration_minutes"] = {"old": calibration_minutes, "new": new_calibration}
         calibration_minutes = new_calibration
 
-    global iv_threshold
-    new_iv_threshold = float(new_auto_rarity.get("iv_threshold", 0.03))
-    if new_iv_threshold != iv_threshold:
-        changes["iv_threshold"] = {"old": iv_threshold, "new": new_iv_threshold}
-        iv_threshold = new_iv_threshold
+    global iv_baseline_percent
+    new_iv_baseline = float(new_auto_rarity.get("iv_baseline_percent", 0.03))
+    if new_iv_baseline != iv_baseline_percent:
+        changes["iv_baseline_percent"] = {"old": iv_baseline_percent, "new": new_iv_baseline}
+        iv_baseline_percent = new_iv_baseline
 
-    global cell_threshold
-    new_cell_threshold = float(new_auto_rarity.get("cell_threshold", 0.01))
-    if new_cell_threshold != cell_threshold:
-        changes["cell_threshold"] = {"old": cell_threshold, "new": new_cell_threshold}
-        cell_threshold = new_cell_threshold
+    global cell_baseline_percent
+    new_cell_baseline = float(new_auto_rarity.get("cell_baseline_percent", 0.01))
+    if new_cell_baseline != cell_baseline_percent:
+        changes["cell_baseline_percent"] = {"old": cell_baseline_percent, "new": new_cell_baseline}
+        cell_baseline_percent = new_cell_baseline
 
     new_ranking_interval = new_auto_rarity.get("ranking_interval_seconds", 300)
     if new_ranking_interval != ranking_interval_seconds:

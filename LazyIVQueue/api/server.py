@@ -308,7 +308,7 @@ class LazyIVQueueServer:
         
         Reloadable:
         - ivlist, celllist
-        - auto_rarity settings (thresholds, intervals)
+        - auto_rarity settings (baselines, intervals)
         - scout concurrency and timeout
         - geofence cache settings
         

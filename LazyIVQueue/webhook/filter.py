@@ -290,9 +290,9 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
 
             # Get rarity rank (None = truly unknown, 1 = rarest, higher = more common)
             if AppConfig.auto_rarity_system == 'poracle':
-                # Poracle uses percentage based rarity with dynamic self-tuning threshold
+                # Auto-rarity uses percentage based rarity with dynamic self-tuning baseline
                 if effective_max_pct <= 0.0:
-                    logger.trace(f"Auto Rarity (Poracle): dispatching paused/suppressed, skipping {pokemon.pokemon_display}")
+                    logger.trace(f"Auto Rarity (Auto-rarity): dispatching paused/suppressed, skipping {pokemon.pokemon_display}")
                     return
 
                 pct = rarity_manager.get_rarity_percent(pokemon.pokemon_id, pokemon.form, "GLOBAL")
@@ -304,15 +304,15 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
                 elif pct <= effective_max_pct:
                     priority = 1000 + int(pct * 10000)
                     if pct <= AppConfig.poracle_ultra_rare:
-                        list_type = f"auto_rarity(poracle-ultra-rare, pct={pct:.4f})"
+                        list_type = f"auto_rarity(ultra-rare, pct={pct:.4f})"
                     elif pct <= AppConfig.poracle_very_rare:
-                        list_type = f"auto_rarity(poracle-very-rare, pct={pct:.4f})"
+                        list_type = f"auto_rarity(very-rare, pct={pct:.4f})"
                     elif pct <= AppConfig.poracle_rare:
-                        list_type = f"auto_rarity(poracle-rare, pct={pct:.4f})"
+                        list_type = f"auto_rarity(rare, pct={pct:.4f})"
                     else:
-                        list_type = f"auto_rarity(poracle, pct={pct:.4f})"
+                        list_type = f"auto_rarity( pct={pct:.4f})"
                 else:
-                    logger.trace(f"Auto Rarity (Poracle): {pokemon.pokemon_display} pct={pct:.4f} > current threshold {effective_max_pct:.4f} - skipping")
+                    logger.trace(f"Auto Rarity: {pokemon.pokemon_display} pct={pct:.4f} > current baseline {effective_max_pct:.4f} - skipping")
                     return
             else:
                 rank = rarity_manager.get_rarity_rank(pokemon.pokemon_id, pokemon.form, area)
@@ -324,11 +324,11 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
                     logger.debug(
                         f"Auto Rarity: {pokemon.pokemon_display} unknown (not in census) in {area} - treating as ultra rare"
                     )
-                elif rank <= AppConfig.iv_threshold:
+                elif rank <= AppConfig.iv_baseline_percent:
                     priority = 1000 + rank
                     list_type = f"auto_rarity(rank={rank})"
                 else:
-                    logger.trace(f"Auto Rarity: {pokemon.pokemon_display} rank {rank} > {AppConfig.iv_threshold}, skipping")
+                    logger.trace(f"Auto Rarity: {pokemon.pokemon_display} rank {rank} > {AppConfig.iv_baseline_percent}, skipping")
                     return
         else:
             logger.trace(f"{pokemon.pokemon_display} not in ivlist, skipping")
