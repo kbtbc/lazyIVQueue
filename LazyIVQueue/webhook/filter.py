@@ -185,6 +185,24 @@ def is_in_denylist(pokemon: PokemonData) -> bool:
     return str(pokemon.pokemon_id) in AppConfig.denylist_parsed
 
 
+async def _record_census(pokemon: PokemonData) -> None:
+    """Record spawn in rarity tracker for census calculations."""
+    import time
+
+    current_time = int(time.time())
+    if pokemon.disappear_time and pokemon.disappear_time < current_time:
+        return
+
+    area = pokemon.area or "GLOBAL"
+    rarity_manager = await RarityManager.get_instance()
+    await rarity_manager.add_spawn(
+        pokemon_id=pokemon.pokemon_id,
+        form=pokemon.form,
+        area=area,
+        despawn_time=pokemon.disappear_time or (current_time + 1800),
+    )
+
+
 async def process_webhook_message(raw_data: Dict[str, Any]) -> None:
     """
     Main entry point for processing Pokemon webhooks.
@@ -208,9 +226,9 @@ async def process_webhook_message(raw_data: Dict[str, Any]) -> None:
         area = found_area
     pokemon.area = area
 
-    # Route to census if enabled
+    # Route to census for rarity tracking
     if AppConfig.auto_rarity_enabled:
-        await process_census_pokemon(pokemon)
+        await _record_census(pokemon)
 
     # Route to queue
     if pokemon.has_iv:
@@ -457,30 +475,3 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
             )
             
 
-async def process_census_pokemon(pokemon: PokemonData) -> None:
-    """
-    Process census Pokemon data for rarity tracking.
-    This receives ALL spawns (not just ivlist/celllist matches).
-    Tracks ALL Pokemon (with or without IV) to build accurate rarity rankings.
-    """
-    import time
-
-    # Track ALL Pokemon spawns for rarity (not just those with IVs)
-    # This ensures rarity rankings are available when queue webhook arrives
-
-    # Skip if despawned
-    current_time = int(time.time())
-    if pokemon.disappear_time and pokemon.disappear_time < current_time:
-        return
-
-    # Use cached area
-    area = pokemon.area or "GLOBAL" 
-
-    # Add to rarity manager
-    rarity_manager = await RarityManager.get_instance()
-    await rarity_manager.add_spawn(
-        pokemon_id=pokemon.pokemon_id,
-        form=pokemon.form,
-        area=area,
-        despawn_time=pokemon.disappear_time or (current_time + 1800),
-    )
