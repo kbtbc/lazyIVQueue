@@ -1176,9 +1176,9 @@ class IVQueueManager:
             color = "red"
 
         logger.opt(colors=True).info(
-            f"<magenta>IVQueue Status:</magenta> <yellow>{pending} pending</yellow> | "
-            f"<white>{held} held</white> | "
-            f"<blue>{awaiting_iv} awaiting IV</blue> | <{color}>{status_name}{rarity_str}: {self._active_scouts}/{self._current_concurrency} scouts</{color}> | "
+            f"<magenta>IVQueue Status:</magenta> <cyan>{held} on hold</cyan> | "
+            f"<yellow>{pending} pending</yellow> | "
+            f"<blue>{awaiting_iv}/{self._current_concurrency} await IV</blue> | <{color}>{status_name}{rarity_str}</{color}> | "
             f"<cyan>Session: {total_queued} queued</cyan> / <green>{total_matches} matches</green> / <magenta>{total_early} early</magenta> / <cyan>{total_wild_early} wild_early</cyan> / <red>{total_timeouts} timeouts</red>"
         )
 
