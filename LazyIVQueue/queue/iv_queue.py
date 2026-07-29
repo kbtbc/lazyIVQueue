@@ -785,7 +785,13 @@ class IVQueueManager:
                 # Too few workers busy: expand the threshold to feed idle capacity
                 if self._current_scout_percent < max_scout_pct:
                     old_pct = self._current_scout_percent
-                    new_pct = min(max_scout_pct, round(self._current_scout_percent + step_delta, 4))
+                    # When recovering from a throttled state near the floor (0.001),
+                    # normalize back to tuning_step_factor as the starting point
+                    # instead of continuing to increment from the floor value.
+                    if old_pct <= 0.001 + 1e-9 and old_pct < baseline_pct - 1e-9:
+                        new_pct = min(max_scout_pct, round(float(AppConfig.tuning_step_factor), 4))
+                    else:
+                        new_pct = min(max_scout_pct, round(self._current_scout_percent + step_delta, 4))
                     if new_pct > old_pct:
                         self._current_scout_percent = new_pct
                         self._last_concurrency_adjustment_time = now
