@@ -854,14 +854,9 @@
                     let categoriesData = {};
                     let defaultExpandLimit = 5;
                     
-                    if (data.rarity.config && data.rarity.config.system === 'poracle') {
-                        categoriesData = data.rarity.poracle_rankings || {};
-                        titleTextEl.textContent = 'Auto-Rarity Rankings';
-                        defaultExpandLimit = 10; // show a bit more per tier
-                    } else if (data.rarity.top_rarest_by_area) {
-                        categoriesData = data.rarity.top_rarest_by_area;
-                        titleTextEl.textContent = 'Area Rarity Rankings';
-                    }
+                    categoriesData = data.rarity.poracle_rankings || {};
+                    titleTextEl.textContent = 'Auto-Rarity Rankings';
+                    defaultExpandLimit = 10;
 
                     if (Object.keys(categoriesData).length > 0) {
                         // Preserve per-area scroll positions across the 5s refresh

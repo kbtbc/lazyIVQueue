@@ -401,7 +401,7 @@ class LazyIVQueueServer:
                 full_config["self_tuning"] = {}
             
             for key in ["enabled", "pending_backlog_seconds", "hard_pause_backlog_seconds", "pending_pause_duration",
-                        "awaiting_iv_drain_percent", "suppress_auto_rarity_on_backlog",
+                        "awaiting_iv_drain_percent",
                         "tuning_interval_seconds", "tuning_step_factor", "max_scout_percent",
                         "too_many_workers_percent", "too_few_workers_percent"]:
                 if key in data:

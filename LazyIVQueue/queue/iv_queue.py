@@ -227,7 +227,7 @@ class IVQueueManager:
             # When THROTTLED by a real backlog (Stage 1 Backlog Relief, _throttled_step >= 1), reject incoming
             # background auto-rarity entries to protect VIP queue. Utilization-driven throttling (_throttled_step 0)
             # only tightens the baseline percentage and does not shed.
-            if self._tuning_status == "THROTTLED" and self._throttled_step >= 1 and AppConfig.suppress_auto_rarity_on_backlog and (entry.list_type or "").startswith("auto_rarity"):
+            if self._tuning_status == "THROTTLED" and self._throttled_step >= 1 and (entry.list_type or "").startswith("auto_rarity"):
                 logger.debug(f"Shedding incoming auto-rarity entry during {self._tuning_status}: {entry.pokemon_display}")
                 return False
 
@@ -492,8 +492,6 @@ class IVQueueManager:
     def _baseline_scout_percent() -> float:
         """
         Baseline scout percentage the tuner centres on (from auto_rarity.iv_baseline_percent).
-        In the 'lazy' rank system iv_baseline_percent is a rank count, not a percentage, so the
-        percentage tuner falls back to 0.03 there.
         """
         thresh = float(AppConfig.iv_baseline_percent)
         return thresh if thresh <= 1.0 else 0.03
@@ -893,7 +891,6 @@ class IVQueueManager:
             "hard_pause_backlog_seconds_config": AppConfig.hard_pause_backlog_seconds,
             "pending_pause_duration_config": AppConfig.pending_pause_duration,
             "awaiting_iv_drain_percent_config": AppConfig.awaiting_iv_drain_percent,
-            "suppress_auto_rarity_config": AppConfig.suppress_auto_rarity_on_backlog,
             "pending_backlog_elapsed_sec": backlog_elapsed,
             "pause_elapsed_sec": pause_elapsed,
             "pause_remaining_sec": pause_remaining,

@@ -31,7 +31,6 @@ log_file = log_config.get("file", False)
 # Auto Rarity settings
 auto_rarity_config = config.get("auto_rarity", {})
 auto_rarity_enabled: bool = auto_rarity_config.get("enabled", False)
-auto_rarity_system: str = auto_rarity_config.get("system", "poracle")
 
 calibration_minutes: int = auto_rarity_config.get("calibration_minutes", 5)
 iv_baseline_percent: float = float(auto_rarity_config.get("iv_baseline_percent", 0.03))
@@ -89,7 +88,6 @@ pending_backlog_seconds: int = self_tuning_config.get("pending_backlog_seconds",
 hard_pause_backlog_seconds: int = self_tuning_config.get("hard_pause_backlog_seconds", 180)
 pending_pause_duration: int = self_tuning_config.get("pending_pause_duration", 60)
 awaiting_iv_drain_percent: int = self_tuning_config.get("awaiting_iv_drain_percent", 50)
-suppress_auto_rarity_on_backlog: bool = self_tuning_config.get("suppress_auto_rarity_on_backlog", True)
 # tuning_interval_seconds: time horizon for tuning decisions
 tuning_interval_seconds: int = self_tuning_config.get("tuning_interval_seconds", 30)
 tuning_step_factor: float = float(self_tuning_config.get("tuning_step_factor", 0.005))
@@ -126,7 +124,6 @@ def reload_config() -> Dict[str, any]:
     global concurrency_scout, timeout_iv, wild_scout_delay
     global geofence_expire_cache_seconds, geofence_refresh_cache_seconds
     global self_tuning_config, self_tuning_enabled, pending_backlog_seconds, hard_pause_backlog_seconds, pending_pause_duration
-    global awaiting_iv_drain_percent, suppress_auto_rarity_on_backlog
     global tuning_interval_seconds, tuning_step_factor, max_scout_percent
     global too_many_workers_percent, too_few_workers_percent
 
@@ -164,11 +161,7 @@ def reload_config() -> Dict[str, any]:
         auto_rarity_enabled = new_auto_rarity_enabled
 
     
-    global auto_rarity_system
-    new_auto_rarity_system = new_auto_rarity.get("system", "poracle")
-    if new_auto_rarity_system != auto_rarity_system:
-        changes["auto_rarity_system"] = {"old": auto_rarity_system, "new": new_auto_rarity_system}
-        auto_rarity_system = new_auto_rarity_system
+
 
     new_calibration = new_auto_rarity.get("calibration_minutes", 5)
     if new_calibration != calibration_minutes:
@@ -245,7 +238,6 @@ def reload_config() -> Dict[str, any]:
         hard_pause_backlog_seconds = self_tuning_config.get("hard_pause_backlog_seconds", 180)
         pending_pause_duration = self_tuning_config.get("pending_pause_duration", 60)
         awaiting_iv_drain_percent = self_tuning_config.get("awaiting_iv_drain_percent", 50)
-        suppress_auto_rarity_on_backlog = self_tuning_config.get("suppress_auto_rarity_on_backlog", True)
         tuning_interval_seconds = self_tuning_config.get("tuning_interval_seconds", 30)
         tuning_step_factor = float(self_tuning_config.get("tuning_step_factor", 0.005))
         max_scout_percent = float(self_tuning_config.get("max_scout_percent", 1.0))

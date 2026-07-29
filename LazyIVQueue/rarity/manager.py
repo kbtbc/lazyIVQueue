@@ -81,10 +81,10 @@ class RarityManager:
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         self._ranking_task = asyncio.create_task(self._ranking_loop())
 
-        thresh_fmt = f"{AppConfig.iv_baseline_percent:.4f}%" if AppConfig.auto_rarity_system == 'poracle' else f"{AppConfig.iv_baseline_percent}"
-        cell_fmt = f"{AppConfig.cell_baseline_percent:.4f}%" if AppConfig.auto_rarity_system == 'poracle' else f"{AppConfig.cell_baseline_percent}"
+        thresh_fmt = f"{AppConfig.iv_baseline_percent:.4f}%"
+        cell_fmt = f"{AppConfig.cell_baseline_percent:.4f}%"
         logger.info(
-            f"RarityManager initialized ({AppConfig.auto_rarity_system.upper()} mode). "
+            f"RarityManager initialized (PORACLE mode). "
             f"Calibration: {AppConfig.calibration_minutes} min, "
             f"IV baseline percent: {thresh_fmt}, "
             f"Cell baseline percent: {cell_fmt}"
@@ -340,12 +340,8 @@ class RarityManager:
 
         # Log summary
         total_pokemon = len(self._global_species_rankings)
-        if AppConfig.auto_rarity_system == 'poracle':
-            would_queue = sum(1 for pct in self._global_pct_cache.values() if pct <= AppConfig.iv_baseline_percent)
-            thresh_log_str = f"{AppConfig.iv_baseline_percent:.4f}%"
-        else:
-            would_queue = min(total_pokemon, int(AppConfig.iv_baseline_percent))
-            thresh_log_str = f"{int(AppConfig.iv_baseline_percent)}"
+        would_queue = sum(1 for pct in self._global_pct_cache.values() if pct <= AppConfig.iv_baseline_percent)
+        thresh_log_str = f"{AppConfig.iv_baseline_percent:.4f}%"
 
         logger.debug(
             f"Rarity rankings updated: {len(self._rankings)} areas, "
@@ -368,15 +364,8 @@ class RarityManager:
 
         # Count Pokemon that are actually rare enough to queue
         rare_count = 0
-        if AppConfig.auto_rarity_system == 'poracle':
-            rare_count = sum(1 for pct in self._global_pct_cache.values() if pct <= AppConfig.iv_baseline_percent)
-            thresh_cond_str = f"pct<={AppConfig.iv_baseline_percent:.4f}%"
-        else:
-            for area_rankings in self._rankings.values():
-                for idx, _ in enumerate(area_rankings):
-                    if idx + 1 <= AppConfig.iv_baseline_percent:  # rank is 1-indexed
-                        rare_count += 1
-            thresh_cond_str = f"rank<={int(AppConfig.iv_baseline_percent)}"
+        rare_count = sum(1 for pct in self._global_pct_cache.values() if pct <= AppConfig.iv_baseline_percent)
+        thresh_cond_str = f"pct<={AppConfig.iv_baseline_percent:.4f}%"
 
         status_icon = "<yellow>[*]</yellow>" if self._status == "CALIBRATING" else "<cyan>[~]</cyan>"
         calibration_info = ""
@@ -434,7 +423,7 @@ class RarityManager:
                         "global_rank": self._global_rank_cache.get(pk),
                         "pokemon": pk,
                         "active_count": count,
-                        "would_queue": (self._global_pct_cache.get(pk, 1.0) <= AppConfig.iv_baseline_percent) if AppConfig.auto_rarity_system == 'poracle' else (idx + 1 <= AppConfig.iv_baseline_percent if not AppConfig.filter_with_koji else self._global_rank_cache.get(pk, 99999) <= AppConfig.iv_baseline_percent),
+                        "would_queue": self._global_pct_cache.get(pk, 1.0) <= AppConfig.iv_baseline_percent,
                     }
                     for idx, (pk, count) in enumerate(rankings)
                 ],
@@ -478,32 +467,30 @@ class RarityManager:
             for idx, (pk, count) in enumerate(self._global_species_rankings[:50])
         ]
         
-        poracle_rankings = {}
-        if AppConfig.auto_rarity_system == "poracle":
-            poracle_rankings = {
-                "Ultra Rare": [],
-                "Very Rare": [],
-                "Rare": [],
-                "Uncommon": [],
-                "Common": []
-            }
-            # Bin global species rankings into auto-rarity categories
-            for idx, (pk, count) in enumerate(self._global_species_rankings):
-                if total_active_global == 0:
-                    break
-                pct = (count / total_active_global) * 100
-                pokemon_name = f"{get_pokemon_name(*map(int, pk.split(':')) if ':' in pk else (int(pk), None))} ({pk})"
-                entry = {"pokemon": pokemon_name, "count": count, "pct": round(pct, 4), "rank": idx + 1}
-                if pct <= AppConfig.poracle_ultra_rare:
-                    poracle_rankings["Ultra Rare"].append(entry)
-                elif pct <= AppConfig.poracle_very_rare:
-                    poracle_rankings["Very Rare"].append(entry)
-                elif pct <= AppConfig.poracle_rare:
-                    poracle_rankings["Rare"].append(entry)
-                elif pct <= AppConfig.poracle_uncommon:
-                    poracle_rankings["Uncommon"].append(entry)
-                else:
-                    poracle_rankings["Common"].append(entry)
+        poracle_rankings = {
+            "Ultra Rare": [],
+            "Very Rare": [],
+            "Rare": [],
+            "Uncommon": [],
+            "Common": []
+        }
+        # Bin global species rankings into auto-rarity categories
+        for idx, (pk, count) in enumerate(self._global_species_rankings):
+            if total_active_global == 0:
+                break
+            pct = (count / total_active_global) * 100
+            pokemon_name = f"{get_pokemon_name(*map(int, pk.split(':')) if ':' in pk else (int(pk), None))} ({pk})"
+            entry = {"pokemon": pokemon_name, "count": count, "pct": round(pct, 4), "rank": idx + 1}
+            if pct <= AppConfig.poracle_ultra_rare:
+                poracle_rankings["Ultra Rare"].append(entry)
+            elif pct <= AppConfig.poracle_very_rare:
+                poracle_rankings["Very Rare"].append(entry)
+            elif pct <= AppConfig.poracle_rare:
+                poracle_rankings["Rare"].append(entry)
+            elif pct <= AppConfig.poracle_uncommon:
+                poracle_rankings["Uncommon"].append(entry)
+            else:
+                poracle_rankings["Common"].append(entry)
 
         return {
             "status": self._status,
@@ -517,7 +504,6 @@ class RarityManager:
                 "iv_baseline_percent": AppConfig.iv_baseline_percent,
                 "cell_baseline_percent": AppConfig.cell_baseline_percent,
                 "ranking_interval_seconds": AppConfig.ranking_interval_seconds,
-                "system": AppConfig.auto_rarity_system,
             },
             "by_area": area_stats,
             "top_rarest_by_area": top_rarest,

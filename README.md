@@ -77,13 +77,12 @@ All configuration is done via `config.json`.
 
 **Auto Rarity**
 - `auto_rarity.enabled` - Enable dynamic rarity-based queueing (default: `false`)
-- `auto_rarity.system` - Rarity ranking system to use: `"lazy"` (rank-based) or `"poracle"` (percentage-based, default: `"lazy"`)
 - `auto_rarity.calibration_minutes` - Minutes to collect spawn data before rankings are used (default: 5)
 - `auto_rarity.iv_baseline_percent` - Queue Pokemon with rarity rank below this (default: 50, lower = rarer)
 - `auto_rarity.cell_baseline_percent` - Cell scout baseline (default: 10)
 - `auto_rarity.ranking_interval_seconds` - How often to recalculate rankings (default: 120)
 - `auto_rarity.cleanup_interval_seconds` - How often to remove despawned Pokemon from tracking (default: 60)
-- `auto_rarity.poracle` - Thresholds for the auto-rarity rarity system (used when `system="poracle"`). Represents top percentage of spawns:
+- `auto_rarity.poracle` - Thresholds for the auto-rarity rarity system. Represents top percentage of spawns:
   - `ultra_rare_percent` - Top X% (default: 0.01 = top 0.01%)
   - `very_rare_percent` - Top X% (default: 0.03)
   - `rare_percent` - Top X% (default: 0.5)
@@ -95,7 +94,6 @@ All configuration is done via `config.json`.
 - `self_tuning.hard_pause_backlog_seconds` - Seconds of pending backlog before hard circuit breaker pause (default: 180)
 - `self_tuning.pending_pause_duration` - Minimum pause duration in seconds (default: 60)
 - `self_tuning.awaiting_iv_drain_percent` - Percentage of awaiting-IV workers to drain before circuit breaker release (default: 50)
-- `self_tuning.suppress_auto_rarity_on_backlog` - Suppress auto-rarity entries during backlog (default: `true`)
 - `self_tuning.tuning_interval_seconds` - Time horizon for tuning decisions (default: 30)
 - `self_tuning.tuning_step_factor` - Step size for adjusting scout baseline percentage (default: 0.005)
 - `self_tuning.max_scout_percent` - Maximum scout baseline percentage (default: 1.0)
@@ -113,18 +111,16 @@ When `auto_rarity.enabled=true`, LazyIVQueue dynamically tracks Pokemon spawn ra
 3. **Calibration**: During the calibration period, only ivlist/celllist Pokemon are queued
 4. **Dynamic Queueing**: After calibration, Pokemon with rarity rank below the baseline are queued
 
-### Rarity Systems
+### Rarity System
 
-LazyIVQueue supports two ways to calculate rarity, controlled by `auto_rarity.system` in `config.json`:
+LazyIVQueue uses a percentage-based rarity system. Rarity is determined by the percentage of total active spawns globally. This mimics PoracleJS categories but numbered asc from rarest (1 = Unseen, 2 = Ultra Rare, 3 = Very Rare, 4 = Rare, 5 = Uncommon). Rarity level can be further fine-tuned below.
 
-1. **Lazy (Rank-Based)**: (Default) Rarity is area-based on absolute rank (e.g. iv_baseline_percent=50 for top 50 rarest Pokemon each area).
-2. **Auto-Rarity (Percentage-Based)**: Rarity is determined by the percentage of total active spawns globally. This mimics PoracleJS categories but numbered asc from rarest (1 = Unseen, 2 = Ultra Rare, 3 = Very Rare, 4 = Rare, 5 = Uncommon).  (e.g. iv_baseline_percent=3 for Vary Rare)   Rarity level can be further fine-tuned below.
+Pokemon that fall under the `rare_percent` (or rarer) will be automatically queued, and the UI dashboard will show classifications using auto-rarity tier groupings.
 
 **Example Rarity Configuration:**
 ```json
 "auto_rarity": {
     "enabled": true,
-    "system": "poracle",
     "poracle": {
         "ultra_rare_percent": 0.01,
         "very_rare_percent": 0.03,
@@ -133,8 +129,6 @@ LazyIVQueue supports two ways to calculate rarity, controlled by `auto_rarity.sy
     }
 }
 ```
-
-If `system` is set to `"poracle"`, Pokemon that fall under the `rare_percent` (or rarer) will be automatically queued, and the UI dashboard will show classifications using auto-rarity tier groupings.
 
 ### Priority System (lower = higher priority)
 
@@ -204,7 +198,7 @@ LazyIVQueue includes an interactive web dashboard accessible at the root path (`
 
 **Features:**
 - **Real-Time Stats**: View queue status, session match rates, scout success vs timeouts, and active spawn counts.
-- **Rarity Rankings**: See the top rarest Pokemon currently tracked in your area or globally (uses auto-rarity categories if `system="poracle"` is configured).
+- **Rarity Rankings**: See the top rarest Pokemon currently tracked in your area or globally.
 - **In-App Config Editor**: Click the "Edit Config" button in the dashboard to view and hot-reload `config.json` directly from the browser without restarting the service or manually calling the reload endpoint.
 
 ## Endpoints
@@ -267,7 +261,7 @@ The `/reload` endpoint allows you to update config.json values without restartin
 - `server` settings (host/port)
 - `dragonite` API settings
 - `koji` credentials and URL
-- `auto_rarity.enabled`, `auto_rarity.system`, `koji.filter_with_koji`
+- `auto_rarity.enabled`, `koji.filter_with_koji`
 - `logging` settings
 
 ## Log Prefixes
