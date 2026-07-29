@@ -583,18 +583,11 @@ class IVQueueManager:
             if RarityManager._instance is not None and not RarityManager._instance.is_ready():
                 rarity_calibrating = True
 
-        # If calibrating, do not allow BOOSTED state
-        if rarity_calibrating and self._current_scout_percent > baseline_pct:
-            self._current_scout_percent = baseline_pct
-            self._tuning_status = "NORMAL"
-
         # On the calibration -> ready transition, restart the utilization timers and step
         # cooldown so at least one full baseline tuning interval passes before any boost.
         # (Workers sit idle during calibration, so the low-utilization timer would
         # otherwise already read as "sustained" the moment calibration completes.)
-        if rarity_calibrating:
-            self._was_calibrating = True
-        elif self._was_calibrating:
+        if self._was_calibrating and not rarity_calibrating:
             self._was_calibrating = False
             self._high_util_start_time = None
             self._low_util_start_time = None
@@ -603,6 +596,14 @@ class IVQueueManager:
                 f"<green>[Self-Tuning]</green> Calibration complete. Holding baseline scout baseline "
                 f"({baseline_pct:.4f}%) for at least one tuning interval ({AppConfig.tuning_interval_seconds}s) before tuning."
             )
+
+        # Skip all tuning adjustments during calibration — no data yet
+        if rarity_calibrating:
+            if self._current_scout_percent != baseline_pct or self._tuning_status != "NORMAL":
+                self._current_scout_percent = baseline_pct
+                self._tuning_status = "NORMAL"
+            self._was_calibrating = True
+            return
 
         # Track dynamic baseline updates
         last_base = getattr(self, "_last_baseline_pct", None)
