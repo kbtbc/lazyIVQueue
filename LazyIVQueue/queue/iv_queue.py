@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import heapq
 import time
+import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -152,6 +153,17 @@ class IVQueueManager:
         self._last_utilization_pct: float = 0.0
         self._was_calibrating: bool = False
         
+        # Initialize throttling log file
+        from LazyIVQueue.queue.throttling import init_throttling_log
+        init_throttling_log()
+        
+        # Initialize throttling log file
+        self.throttling_log_file = "throttling.log"
+        try:
+            with open(self.throttling_log_file, "w") as f:
+                json.dump([], f)
+        except Exception as e:
+            logger.error(f"Failed to initialize throttling log: {e}")
 
     @classmethod
     async def get_instance(cls) -> IVQueueManager:
