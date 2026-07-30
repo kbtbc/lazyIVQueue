@@ -1,7 +1,6 @@
 import aiohttp
 from typing import Any, Dict, Optional, Tuple
 from yarl import URL
-from LazyIVQueue.utils.logger import logger
 
 def _normalize_base_url(base_url: str) -> str:
     base_url = base_url.strip()

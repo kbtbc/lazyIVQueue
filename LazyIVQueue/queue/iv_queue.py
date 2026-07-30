@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from LazyIVQueue.utils.logger import logger
-from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
+from LazyIVQueue.utils.geo_utils import is_within_distance
 from LazyIVQueue.utils.encounter_utils import normalize_encounter_id
 from LazyIVQueue.queue.throttling import config_snapshot, log_event, log_sample, log_session_start
 import LazyIVQueue.config as AppConfig
@@ -432,15 +432,6 @@ class IVQueueManager:
             self._wild_early_by_pokemon[seen_type].get(pokemon_display, 0) + 1
         )
 
-    def record_timeout(self, pokemon_display: str, seen_type: str) -> None:
-        """Record a scout timeout."""
-        if seen_type not in self._seen_types:
-            return
-        self._timeouts_by_type[seen_type] = self._timeouts_by_type.get(seen_type, 0) + 1
-        self._timeouts_by_pokemon[seen_type][pokemon_display] = (
-            self._timeouts_by_pokemon[seen_type].get(pokemon_display, 0) + 1
-        )
-
     def record_scout_outcome(self, success: bool) -> None:
         """Record the outcome of a scout request for dynamic concurrency tuning."""
         self._recent_scout_outcomes.append(success)
@@ -465,22 +456,6 @@ class IVQueueManager:
         awaiting_iv = sum(1 for e in self._entries.values() if (e.is_scouting or e.was_scouted) and not e.is_removed)
         unscouted = sum(1 for e in self._entries.values() if not e.is_scouting and not e.was_scouted and not e.is_removed and e.eligible_at <= now)
         return unscouted, awaiting_iv
-
-    def _shed_celllist_backlog(self) -> int:
-        """Purge unscouted celllist (nearby_cell / 9-point grid) entries during Stage 1 Step 1 load shedding."""
-        shed_count = 0
-        for key, entry in list(self._entries.items()):
-            if entry.is_removed or entry.is_scouting or entry.was_scouted:
-                continue
-            if entry.list_type == "celllist" or entry.seen_type == "nearby_cell":
-                entry.is_removed = True
-                del self._entries[key]
-                shed_count += 1
-        if shed_count > 0:
-            logger.opt(colors=True).info(
-                f"<yellow>[Self-Tuning]</yellow> Shed {shed_count} pending celllist (9-point grid) scouts to protect VIP ivlist and rarity queues."
-            )
-        return shed_count
 
     def _aggressive_purge_non_ivlist(self) -> int:
         """Aggressively purge all non-ivlist entries during Stage 1 throttling."""

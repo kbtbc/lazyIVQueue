@@ -230,7 +230,6 @@ def config_snapshot() -> Dict[str, Any]:
     keys = (
         "self_tuning_enabled",
         "iv_baseline_percent",
-        "cell_baseline_percent",
         "max_scout_percent",
         "tuning_step_factor",
         "tuning_interval_seconds",

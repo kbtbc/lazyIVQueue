@@ -400,7 +400,7 @@ class LazyIVQueueServer:
             if "self_tuning" not in full_config:
                 full_config["self_tuning"] = {}
             
-            for key in ["enabled", "iv_baseline_percent", "cell_baseline_percent",
+            for key in ["enabled", "iv_baseline_percent",
                         "tuning_interval_seconds", "tuning_step_factor", "max_scout_percent",
                         "too_many_workers_percent", "too_few_workers_percent"]:
                 if key in data:

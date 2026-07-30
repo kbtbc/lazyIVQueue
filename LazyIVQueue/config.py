@@ -82,7 +82,6 @@ concurrency_scout: int = scout_config.get("concurrency", 5)
 self_tuning_config = config.get("self_tuning", {})
 self_tuning_enabled: bool = self_tuning_config.get("enabled", True)
 iv_baseline_percent: float = float(self_tuning_config.get("iv_baseline_percent", 0.03))
-cell_baseline_percent: float = float(self_tuning_config.get("cell_baseline_percent", 0.005))
 circuit_breaker_config = self_tuning_config.get("circuit_breaker", {})
 throttle_backlog_seconds: int = circuit_breaker_config.get("throttle_backlog_seconds", 45)
 hard_pause_backlog_seconds: int = circuit_breaker_config.get("hard_pause_backlog_seconds", 120)
@@ -132,7 +131,7 @@ def reload_config() -> Dict[str, any]:
     global rarity_config, rarity_ultra_rare, rarity_very_rare, rarity_rare, rarity_uncommon
     global concurrency_scout, timeout_iv, wild_scout_delay
     global geofence_expire_cache_seconds, geofence_refresh_cache_seconds
-    global self_tuning_config, self_tuning_enabled, iv_baseline_percent, cell_baseline_percent
+    global self_tuning_config, self_tuning_enabled, iv_baseline_percent
     global circuit_breaker_config, throttle_backlog_seconds, hard_pause_backlog_seconds, min_hard_pause_duration, worker_recovery_percent
     global dragonite_queue_poll_interval_seconds, dragonite_queue_threshold, dragonite_queue_clear_seconds
     global tuning_interval_seconds, tuning_step_factor, max_scout_percent
@@ -230,7 +229,6 @@ def reload_config() -> Dict[str, any]:
         self_tuning_config = new_tuning
         self_tuning_enabled = self_tuning_config.get("enabled", True)
         iv_baseline_percent = float(self_tuning_config.get("iv_baseline_percent", 0.03))
-        cell_baseline_percent = float(self_tuning_config.get("cell_baseline_percent", 0.005))
         circuit_breaker_config = self_tuning_config.get("circuit_breaker", {})
         throttle_backlog_seconds = circuit_breaker_config.get("throttle_backlog_seconds", 45)
         hard_pause_backlog_seconds = circuit_breaker_config.get("hard_pause_backlog_seconds", 120)
@@ -273,23 +271,6 @@ def get_pokemon_priority(pokemon_id: int, form: Optional[int]) -> Optional[int]:
         return ivlist_parsed[key]
 
     return None
-
-def is_pokemon_in_ivlist(pokemon_id: int, form: Optional[int]) -> bool:
-    """Check if pokemon matches ivlist."""
-    return get_pokemon_priority(pokemon_id, form) is not None
-
-def is_pokemon_in_denylist(pokemon_id: int, form: Optional[int]) -> bool:
-    """Check if pokemon matches denylist."""
-    if form is not None:
-        key = f"{pokemon_id}:{form}"
-        if key in denylist_parsed:
-            return True
-
-    key = str(pokemon_id)
-    if key in denylist_parsed:
-        return True
-
-    return False
 
 # Scout concurrency
 concurrency_scout: int = scout_config.get("concurrency", 5)

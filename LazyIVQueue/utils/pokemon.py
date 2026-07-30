@@ -1,5 +1,4 @@
 import json
-import asyncio
 import aiohttp
 from LazyIVQueue.utils.logger import logger
 import os

@@ -556,19 +556,6 @@
                 .sort((a, b) => b.count - a.count);
         }
 
-        function aggregatePokemonStats(by_pokemon, statKey) {
-            const totals = {};
-            for (const source of ['wild', 'nearby_stop', 'nearby_cell']) {
-                const stats = by_pokemon[source]?.[statKey] || {};
-                for (const [pokemon, count] of Object.entries(stats)) {
-                    totals[pokemon] = (totals[pokemon] || 0) + count;
-                }
-            }
-            return Object.entries(totals)
-                .map(([pokemon, count]) => ({ pokemon, count }))
-                .sort((a, b) => b.count - a.count);
-        }
-
         function rankBadgeClass(index) {
             if (index === 0) return 'bg-amber-400 text-white';
             if (index === 1) return 'bg-slate-300 text-slate-700';

@@ -85,7 +85,6 @@ All configuration is done via `config.json`.
 **Self-Tuning Queue**
 - `self_tuning.enabled` - Enable dynamic queue tuning (default: `true`)
 - `self_tuning.iv_baseline_percent` - Baseline percentage of rarest spawns to scout (e.g. 0.03 = top 3.0%)
-- `self_tuning.cell_baseline_percent` - Cell scout baseline (default: 0.01)
 - `self_tuning.circuit_breaker.throttle_backlog_seconds` - Seconds of pending backlog before Stage 1 load shedding (default: 45)
 - `self_tuning.circuit_breaker.hard_pause_backlog_seconds` - Seconds of pending backlog before hard circuit breaker pause (default: 180)
 - `self_tuning.circuit_breaker.min_hard_pause_duration` - Minimum hard pause duration in seconds (default: 60)
@@ -105,7 +104,7 @@ When `auto_rarity.enabled=true`, LazyIVQueue dynamically tracks Pokemon spawn ra
 1. **Webhook**: Configure Golbat to send ALL Pokemon spawns to `/webhook`. The system automatically handles both rarity tracking and queue filtering from the single endpoint.
 2. **Rarity Tracking**: The system tracks active spawns per area (or globally if Koji disabled)
 3. **Calibration**: During the calibration period, only ivlist/celllist Pokemon are queued
-4. **Dynamic Queueing**: After calibration, Pokemon with rarity rank below the baseline are queued
+4. **Dynamic Queueing**: After calibration, `wild`/`nearby_stop` Pokemon with rarity rank below the baseline are queued. `nearby_cell` Pokemon are only queued if they're in `celllist` — there's no rarity fallback for cell scouts.
 
 ### Rarity System
 

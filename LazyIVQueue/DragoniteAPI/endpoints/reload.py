@@ -1,5 +1,4 @@
 from typing import Any, Dict, List
-from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.DragoniteAPI.utils.http_api import APIClient
 
 async def get_status(client: APIClient) -> List[Dict[str, Any]]:

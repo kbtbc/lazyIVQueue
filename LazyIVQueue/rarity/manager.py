@@ -80,12 +80,10 @@ class RarityManager:
         self._ranking_task = asyncio.create_task(self._ranking_loop())
 
         thresh_fmt = f"{AppConfig.iv_baseline_percent:.4f}%"
-        cell_fmt = f"{AppConfig.cell_baseline_percent:.4f}%"
         logger.info(
             f"RarityManager initialized. "
             f"Calibration: {AppConfig.calibration_minutes} min, "
-            f"IV baseline percent: {thresh_fmt}, "
-            f"Cell baseline percent: {cell_fmt}"
+            f"IV baseline percent: {thresh_fmt}"
         )
 
     async def add_spawn(
@@ -153,65 +151,6 @@ class RarityManager:
         for pokemon_key in keys_to_try:
             if pokemon_key in self._global_pct_cache:
                 return self._global_pct_cache[pokemon_key]
-
-        return None
-
-    def get_rarity_rank(
-        self, pokemon_id: int, form: Optional[int], area: str
-    ) -> Optional[int]:
-        """
-        Get rarity rank for a Pokemon.
-
-        When FILTER_WITH_KOJI=FALSE (global mode), area is ignored - we just
-        look up the Pokemon in the single "GLOBAL" bucket.
-
-        Args:
-            pokemon_id: Pokemon ID
-            form: Pokemon form (None for any form)
-            area: Geofence area name or "GLOBAL" (ignored in global mode)
-
-        Returns:
-            Rank (1 = rarest), or None if truly unknown.
-            Returns a high rank if Pokemon exists but rankings not updated yet.
-        """
-        # Build pokemon keys - try both with form and without for flexible matching
-        keys_to_try = []
-        if form is not None:
-            keys_to_try.append(f"{pokemon_id}:{form}")  # Exact form match first
-        keys_to_try.append(str(pokemon_id))  # Any-form fallback
-
-        # In global mode (no Koji), just use "GLOBAL" area regardless of what was passed
-        lookup_area = "GLOBAL" if not AppConfig.filter_with_koji else area
-
-        # Check rank cache with each key
-        for pokemon_key in keys_to_try:
-            if lookup_area in self._rank_cache and pokemon_key in self._rank_cache[lookup_area]:
-                return self._rank_cache[lookup_area][pokemon_key]
-
-        # Still no match - try finding any form of this pokemon in the area
-        if lookup_area in self._rank_cache:
-            for cached_key, rank in self._rank_cache[lookup_area].items():
-                if cached_key == str(pokemon_id) or cached_key.startswith(f"{pokemon_id}:"):
-                    return rank
-
-        # Cache miss - check if Pokemon exists in _actives (seen in census but not ranked yet)
-        if lookup_area in self._actives:
-            for pokemon_key in keys_to_try:
-                if pokemon_key in self._actives[lookup_area]:
-                    # Pokemon exists but rankings haven't updated yet
-                    return len(self._rank_cache.get(lookup_area, {})) + 1000
-
-            # Also check for any form
-            for active_key in self._actives[lookup_area]:
-                if active_key == str(pokemon_id) or active_key.startswith(f"{pokemon_id}:"):
-                    return len(self._rank_cache.get(lookup_area, {})) + 1000
-
-        # Log cache miss for debugging
-        logger.debug(
-            f"Rarity cache miss: pokemon_id={pokemon_id}, form={form}, lookup_area={lookup_area} | "
-            f"Keys tried: {keys_to_try} | "
-            f"Areas in cache: {list(self._rank_cache.keys())}"
-        )
 
         return None
 
@@ -497,7 +436,6 @@ class RarityManager:
             "config": {
                 "calibration_minutes": AppConfig.calibration_minutes,
                 "iv_baseline_percent": AppConfig.iv_baseline_percent,
-                "cell_baseline_percent": AppConfig.cell_baseline_percent,
                 "ranking_interval_seconds": AppConfig.ranking_interval_seconds,
             },
             "by_area": area_stats,

@@ -27,7 +27,7 @@
         "151"
     ],
     "denylist": [],
-    "_comment_auto_rarity": "Dynamically calculates rarity based on spawn frequency using auto-rarity baseline percentages. iv_baseline_percent defines the baseline percentage of rarest spawns scouted (e.g. 0.03 = 3.0%), cell_baseline_percent for cell scouts (0.01 = 1.0%).",
+    "_comment_auto_rarity": "Dynamically calculates rarity based on spawn frequency using an auto-rarity baseline percentage. iv_baseline_percent defines the baseline percentage of rarest spawns scouted (e.g. 0.03 = 3.0%).",
     "auto_rarity": {
         "enabled": false,
         "calibration_minutes": 3,
@@ -43,7 +43,6 @@
     "self_tuning": {
         "enabled": true,
         "iv_baseline_percent": 0.03,
-        "cell_baseline_percent": 0.001,
         "tuning_interval_seconds": 30,
         "tuning_step_factor": 0.005,
         "max_scout_percent": 1.0,

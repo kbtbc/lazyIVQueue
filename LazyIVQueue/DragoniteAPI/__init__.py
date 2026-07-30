@@ -1,7 +1,6 @@
 """Dragonite API package."""
 from LazyIVQueue.DragoniteAPI.utils.http_api import APIClient
 import LazyIVQueue.config as AppConfig
-from LazyIVQueue.utils.logger import logger
 
 
 def get_dragonite_client() -> APIClient:

@@ -14,7 +14,6 @@ from typing import Any, Dict, Optional, Tuple
 
 from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.utils.koji_geofences import KojiGeofenceManager
-from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
 from LazyIVQueue.utils.encounter_utils import normalize_encounter_id
 from LazyIVQueue.utils.s2_utils import get_s2_cell_id
 from LazyIVQueue.queue.iv_queue import IVQueueManager, QueueEntry
@@ -50,11 +49,6 @@ class PokemonData:
         """Get key for ivlist lookup (pokemon_id:form)."""
         if self.form is not None:
             return f"{self.pokemon_id}:{self.form}"
-        return str(self.pokemon_id)
-
-    @property
-    def ivlist_key_any_form(self) -> str:
-        """Get key for any-form lookup (just pokemon_id)."""
         return str(self.pokemon_id)
 
     @property
@@ -169,13 +163,6 @@ def is_in_celllist(pokemon: PokemonData) -> Tuple[bool, Optional[int]]:
     return False, None
 
 
-def is_in_any_list(pokemon: PokemonData) -> bool:
-    """Check if Pokemon matches either ivlist or celllist."""
-    matches_iv, _ = is_in_ivlist(pokemon)
-    matches_cell, _ = is_in_celllist(pokemon)
-    return matches_iv or matches_cell
-
-
 def is_in_denylist(pokemon: PokemonData) -> bool:
     """Check if Pokemon matches the denylist (should not be scouted)."""
     if pokemon.form is not None:
@@ -267,47 +254,12 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
         return
 
     if seen_type == "nearby_cell":
-        # nearby_cell: Check celllist first (VIP override), then auto_rarity if enabled
+        # nearby_cell: only celllist (VIP) entries are scouted, no auto-rarity fallback
         matches_cell, cell_priority = is_in_celllist(pokemon)
         if matches_cell and cell_priority is not None:
             priority = cell_priority
             s2_cell_id = get_s2_cell_id(pokemon.latitude, pokemon.longitude)
             list_type = "celllist"
-        elif AppConfig.auto_rarity_enabled:
-            # Auto Rarity fallback for cell scouts using cell_baseline_percent
-            rarity_manager = await RarityManager.get_instance()
-            cell_effective_pct = float(AppConfig.cell_baseline_percent)
-
-            if not rarity_manager.is_ready():
-                has_vip_lists = bool(AppConfig.ivlist) or bool(AppConfig.celllist)
-                if has_vip_lists:
-                    logger.trace(f"Auto Rarity calibrating, skipping non-VIP nearby_cell {pokemon.pokemon_display}")
-                    return
-                else:
-                    logger.trace(f"Auto Rarity calibrating (no VIP lists), skipping nearby_cell {pokemon.pokemon_display}")
-                    return
-
-            pct = rarity_manager.get_rarity_percent(pokemon.pokemon_id, pokemon.form, "GLOBAL")
-
-            if pct is None:
-                priority = 1000
-                s2_cell_id = get_s2_cell_id(pokemon.latitude, pokemon.longitude)
-                list_type = "auto_rarity(unknown)"
-                logger.debug(f"Auto Rarity (cell): {pokemon.pokemon_display} unknown globally - treating as ultra rare")
-            elif pct <= cell_effective_pct:
-                priority = 1000 + int(pct * 10000)
-                s2_cell_id = get_s2_cell_id(pokemon.latitude, pokemon.longitude)
-                if pct <= AppConfig.rarity_ultra_rare:
-                    list_type = f"auto_rarity(ultra-rare, pct={pct:.4f})"
-                elif pct <= AppConfig.rarity_very_rare:
-                    list_type = f"auto_rarity(very-rare, pct={pct:.4f})"
-                elif pct <= AppConfig.rarity_rare:
-                    list_type = f"auto_rarity(rare, pct={pct:.4f})"
-                else:
-                    list_type = f"auto_rarity( pct={pct:.4f})"
-            else:
-                logger.trace(f"Auto Rarity (cell): {pokemon.pokemon_display} pct={pct:.4f} > cell baseline {cell_effective_pct:.4f} - skipping")
-                return
         else:
             logger.trace(f"{pokemon.pokemon_display} nearby_cell not in celllist, skipping")
             return
