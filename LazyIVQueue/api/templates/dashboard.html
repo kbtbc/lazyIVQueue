@@ -123,7 +123,7 @@
                         </span>
                     </div>
                     <p class="text-xs text-gray-500 mt-1" id="tuning-status-desc">
-                        Circuit breaker active. Monitors pending backlog & drains awaiting IVs during network spikes.
+                        Circuit breaker active. Tracks Dragonite's own scout queue depth and drains awaiting IVs during network spikes.
                     </p>
                 </div>
                 
@@ -145,13 +145,19 @@
             <!-- Self-Tuning Telemetry Grid -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="bg-gray-50 rounded-lg p-3.5 border border-gray-100">
-                    <span class="text-xs text-gray-500 font-medium block">Backlog Timer</span>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-gray-500 font-medium block">Dragonite Scout Queue</span>
+                        <span id="tuning-dragonite-stale" class="hidden px-1.5 py-0.5 text-[10px] font-semibold rounded bg-yellow-100 text-yellow-800 border border-yellow-200">STALE</span>
+                    </div>
                     <div class="flex items-baseline justify-between mt-1">
-                        <span class="text-lg font-bold text-gray-900" id="tuning-backlog-elapsed">0.0s</span>
-                        <span class="text-xs font-semibold text-gray-500" id="tuning-backlog-thresh">/ 45s</span>
+                        <span class="text-lg font-bold text-gray-900" id="tuning-dragonite-value">--</span>
+                        <span class="text-xs font-semibold text-gray-500" id="tuning-dragonite-thresh">/ 5</span>
                     </div>
                     <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2 overflow-hidden">
                         <div id="tuning-backlog-bar" class="bg-indigo-600 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1">
+                        Above threshold: <span id="tuning-backlog-elapsed" class="font-medium text-gray-700">0.0s</span> / <span id="tuning-backlog-thresh-s">45s</span>
                     </div>
                 </div>
 
@@ -750,7 +756,7 @@
                         } else if (st.status === 'BACKLOG_WARNING') {
                             badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200 flex items-center gap-1.5';
                             badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-yellow-500 animate-ping"></span> BACKLOG WARNING';
-                            descEl.textContent = `Pending backlog building up (${st.pending_backlog_elapsed_sec.toFixed(1)}s / ${st.pending_backlog_seconds_config}s baseline)...`;
+                            descEl.textContent = `Dragonite scout queue (${st.dragonite_queue_value}) above threshold (${st.dragonite_queue_threshold_config}) for ${st.pending_backlog_elapsed_sec.toFixed(1)}s / ${st.throttle_backlog_seconds_config}s...`;
                         } else if (st.status === 'PAUSED') {
                             badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800 border border-red-300 flex items-center gap-1.5 animate-pulse';
                             badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-600"></span> CIRCUIT BREAKER PAUSED';
@@ -765,7 +771,7 @@
                             badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800 border border-orange-200 flex items-center gap-1.5';
                             badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-orange-500"></span> THROTTLED';
                             const throttleReason = st.pending_backlog_elapsed_sec > 0
-                                ? `Backlog building up (${st.pending_backlog_elapsed_sec.toFixed(1)}s)`
+                                ? `Dragonite scout queue (${st.dragonite_queue_value}) backed up for ${st.pending_backlog_elapsed_sec.toFixed(1)}s`
                                 : `High worker load (${(st.worker_utilization_pct !== undefined ? st.worker_utilization_pct : 0).toFixed(0)}% of scouts busy)`;
                             descEl.textContent = `THROTTLED: ${throttleReason}. scout baseline tightened to ${scoutPct}% (baseline: ${basePct}%, ${st.current_concurrency} scouts active).`;
                         } else if (st.status === 'MANUALLY_PAUSED') {
@@ -776,10 +782,17 @@
                             btnPause.className = 'px-3.5 py-2 text-xs font-semibold rounded-lg bg-green-50 border border-green-300 text-green-800 hover:bg-green-100 transition-colors flex items-center gap-1.5 shadow-sm';
                         }
 
-                        // Backlog timer
+                        // Dragonite Scout Queue: live value/threshold/staleness
+                        const dragoniteVal = st.dragonite_queue_value;
+                        document.getElementById('tuning-dragonite-value').textContent = (dragoniteVal !== null && dragoniteVal !== undefined) ? dragoniteVal : '--';
+                        document.getElementById('tuning-dragonite-thresh').textContent = `/ ${st.dragonite_queue_threshold_config}`;
+                        document.getElementById('tuning-dragonite-stale').classList.toggle('hidden', !st.dragonite_queue_stale);
+
+                        // Backlog timer: threshold depends on which stage we're heading toward
+                        const backlogThreshS = st.status === 'THROTTLED' ? st.hard_pause_backlog_seconds_config : st.throttle_backlog_seconds_config;
                         document.getElementById('tuning-backlog-elapsed').textContent = st.pending_backlog_elapsed_sec.toFixed(1) + 's';
-                        document.getElementById('tuning-backlog-thresh').textContent = `/ ${st.pending_backlog_seconds_config}s`;
-                        const backlogPct = Math.min(100, Math.round((st.pending_backlog_elapsed_sec / Math.max(1, st.pending_backlog_seconds_config)) * 100));
+                        document.getElementById('tuning-backlog-thresh-s').textContent = `${backlogThreshS}s`;
+                        const backlogPct = Math.min(100, Math.round((st.pending_backlog_elapsed_sec / Math.max(1, backlogThreshS)) * 100));
                         const backlogBar = document.getElementById('tuning-backlog-bar');
                         backlogBar.style.width = backlogPct + '%';
                         backlogBar.className = backlogPct > 80 ? 'bg-red-500 h-1.5 rounded-full transition-all duration-300' : (backlogPct > 40 ? 'bg-yellow-500 h-1.5 rounded-full transition-all duration-300' : 'bg-indigo-600 h-1.5 rounded-full transition-all duration-300');
@@ -1063,11 +1076,13 @@
             if (modal.classList.contains('hidden')) {
                 if (lastSelfTuningData) {
                     document.getElementById('cfg-tuning-enabled').checked = lastSelfTuningData.enabled;
-                    document.getElementById('cfg-tuning-backlog-sec').value = lastSelfTuningData.pending_backlog_seconds_config || 45;
+                    document.getElementById('cfg-tuning-backlog-sec').value = lastSelfTuningData.throttle_backlog_seconds_config || 45;
                     document.getElementById('cfg-tuning-hard-pause-sec').value = lastSelfTuningData.hard_pause_backlog_seconds_config || 90;
                     document.getElementById('cfg-tuning-pause-dur').value = lastSelfTuningData.pending_pause_duration_config || 60;
                     document.getElementById('cfg-tuning-drain-pct').value = lastSelfTuningData.awaiting_iv_drain_percent_config || 50;
-                    document.getElementById('cfg-tuning-suppress-rarity').checked = lastSelfTuningData.suppress_auto_rarity_config !== false;
+                    document.getElementById('cfg-tuning-dragonite-threshold').value = lastSelfTuningData.dragonite_queue_threshold_config !== undefined ? lastSelfTuningData.dragonite_queue_threshold_config : 5;
+                    document.getElementById('cfg-tuning-dragonite-clear-sec').value = lastSelfTuningData.dragonite_queue_clear_seconds_config !== undefined ? lastSelfTuningData.dragonite_queue_clear_seconds_config : 10;
+                    document.getElementById('cfg-tuning-dragonite-poll-sec').value = lastSelfTuningData.dragonite_queue_poll_interval_seconds_config !== undefined ? lastSelfTuningData.dragonite_queue_poll_interval_seconds_config : 1.5;
                     document.getElementById('cfg-tuning-step-sec').value = lastSelfTuningData.tuning_interval_seconds_config || 30;
                     document.getElementById('cfg-tuning-too-many').value = lastSelfTuningData.too_many_workers_percent_config !== undefined ? lastSelfTuningData.too_many_workers_percent_config : 50;
                     document.getElementById('cfg-tuning-too-few').value = lastSelfTuningData.too_few_workers_percent_config !== undefined ? lastSelfTuningData.too_few_workers_percent_config : 5;
@@ -1088,11 +1103,13 @@
             e.preventDefault();
             const payload = {
                 enabled: document.getElementById('cfg-tuning-enabled').checked,
-                pending_backlog_seconds: parseInt(document.getElementById('cfg-tuning-backlog-sec').value),
+                throttle_backlog_seconds: parseInt(document.getElementById('cfg-tuning-backlog-sec').value),
                 hard_pause_backlog_seconds: parseInt(document.getElementById('cfg-tuning-hard-pause-sec').value),
-                pending_pause_duration: parseInt(document.getElementById('cfg-tuning-pause-dur').value),
-                awaiting_iv_drain_percent: parseInt(document.getElementById('cfg-tuning-drain-pct').value),
-                suppress_auto_rarity_on_backlog: document.getElementById('cfg-tuning-suppress-rarity').checked,
+                min_hard_pause_duration: parseInt(document.getElementById('cfg-tuning-pause-dur').value),
+                worker_recovery_percent: parseInt(document.getElementById('cfg-tuning-drain-pct').value),
+                dragonite_queue_threshold: parseInt(document.getElementById('cfg-tuning-dragonite-threshold').value),
+                dragonite_queue_clear_seconds: parseInt(document.getElementById('cfg-tuning-dragonite-clear-sec').value),
+                dragonite_queue_poll_interval_seconds: parseFloat(document.getElementById('cfg-tuning-dragonite-poll-sec').value),
                 tuning_interval_seconds: parseInt(document.getElementById('cfg-tuning-step-sec').value),
                 too_many_workers_percent: parseFloat(document.getElementById('cfg-tuning-too-many').value),
                 too_few_workers_percent: parseFloat(document.getElementById('cfg-tuning-too-few').value),
@@ -1187,12 +1204,30 @@
                                 </div>
                             </div>
 
-                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
+                            <hr class="border-gray-100 my-2">
+
+                            <div>
+                                <span class="text-xs font-bold text-gray-800 block mb-1">Dragonite Scout Queue (primary backlog signal)</span>
+                                <span class="text-[11px] text-gray-400">Polls Dragonite's own /scout/queue depth directly, instead of our internal pending count</span>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label for="cfg-tuning-suppress-rarity" class="font-semibold text-gray-900 block">Tighten Scout Baseline on Backlog (Stage 1)</label>
-                                    <span class="text-xs text-gray-500">Dynamically reduce auto-rarity percentage scout baseline during queue backlog</span>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Queue Threshold</label>
+                                    <input type="number" id="cfg-tuning-dragonite-threshold" min="0" max="1000" step="1" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                                    <span class="text-[11px] text-gray-400">Default: 5 — queue depth at/below this counts as "clear"</span>
                                 </div>
-                                <input type="checkbox" id="cfg-tuning-suppress-rarity" class="w-5 h-5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Clear Streak (sec)</label>
+                                    <input type="number" id="cfg-tuning-dragonite-clear-sec" min="0" max="300" step="1" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                                    <span class="text-[11px] text-gray-400">Default: 10s — must stay at/below threshold this long before the backlog timer resets</span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-700 mb-1">Poll Interval (sec)</label>
+                                <input type="number" id="cfg-tuning-dragonite-poll-sec" min="0.5" max="60" step="0.5" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                                <span class="text-[11px] text-gray-400">Default: 1.5s — how often we ask Dragonite for its queue depth</span>
                             </div>
 
                             <hr class="border-gray-100 my-2">

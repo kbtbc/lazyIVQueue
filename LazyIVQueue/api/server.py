@@ -405,10 +405,16 @@ class LazyIVQueueServer:
                         "too_many_workers_percent", "too_few_workers_percent"]:
                 if key in data:
                     full_config["self_tuning"][key] = data[key]
+
+            # These live under self_tuning.circuit_breaker in config.json, not flat under
+            # self_tuning - config.py's reload only ever reads them from that nested block.
+            if "circuit_breaker" not in full_config["self_tuning"]:
+                full_config["self_tuning"]["circuit_breaker"] = {}
             for key in ["throttle_backlog_seconds", "hard_pause_backlog_seconds", "min_hard_pause_duration",
-                        "worker_recovery_percent"]:
+                        "worker_recovery_percent", "dragonite_queue_threshold", "dragonite_queue_clear_seconds",
+                        "dragonite_queue_poll_interval_seconds"]:
                 if key in data:
-                    full_config["self_tuning"][key] = data[key]
+                    full_config["self_tuning"]["circuit_breaker"][key] = data[key]
             
             _write_config_json(full_config, CONFIG_PATH)
             
