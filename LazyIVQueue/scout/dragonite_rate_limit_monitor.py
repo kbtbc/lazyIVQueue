@@ -11,6 +11,7 @@ import asyncio
 from typing import Optional
 
 from LazyIVQueue.utils.logger import logger
+from LazyIVQueue.queue.iv_queue import IVQueueManager
 from LazyIVQueue.DragoniteAPI import get_dragonite_client
 from LazyIVQueue.DragoniteAPI.utils.http_api import APIClient
 from LazyIVQueue.DragoniteAPI.endpoints.rate_limit import get_global_rate_limit, reset_global_rate_limit
@@ -52,12 +53,15 @@ class DragoniteRateLimitMonitor:
         )
 
     async def _run_loop(self) -> None:
+        queue = await IVQueueManager.get_instance()
+
         while self._running:
             sleep_seconds = AppConfig.dragonite_rate_limit_poll_interval_seconds
 
             try:
                 state = await get_global_rate_limit(self._client)
                 waiters = state.get("waiters") if isinstance(state, dict) else None
+                queue.set_dragonite_rate_limit_waiters(waiters if isinstance(waiters, (int, float)) else None)
 
                 if isinstance(waiters, (int, float)) and waiters > AppConfig.dragonite_rate_limit_waiters_threshold:
                     logger.opt(colors=True).warning(
@@ -79,6 +83,7 @@ class DragoniteRateLimitMonitor:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
+                queue.set_dragonite_rate_limit_waiters(None)
                 logger.debug(f"DragoniteRateLimitMonitor poll failed: {e}")
 
             try:

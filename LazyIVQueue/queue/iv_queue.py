@@ -146,6 +146,10 @@ class IVQueueManager:
         # its own poll interval (decoupled from how often the tuner itself runs).
         self._dragonite_queue_value: Optional[int] = None
         self._dragonite_queue_updated_at: Optional[float] = None
+        # Latest Dragonite /global-rate-limit waiters reading, pushed in by
+        # DragoniteRateLimitMonitor on its own poll interval.
+        self._dragonite_rate_limit_waiters: Optional[int] = None
+        self._dragonite_rate_limit_waiters_updated_at: Optional[float] = None
         # How long the reading has continuously stayed at/below the tolerance
         # threshold - the debounce that keeps a brief VIP-driven blip from
         # clearing the backlog timer.
@@ -449,6 +453,16 @@ class IVQueueManager:
         """
         self._dragonite_queue_value = value
         self._dragonite_queue_updated_at = time.time()
+
+    def set_dragonite_rate_limit_waiters(self, value: Optional[int]) -> None:
+        """
+        Push in the latest polled Dragonite /global-rate-limit waiters count.
+
+        Called by DragoniteRateLimitMonitor on its own interval. `value=None`
+        marks a failed poll.
+        """
+        self._dragonite_rate_limit_waiters = value
+        self._dragonite_rate_limit_waiters_updated_at = time.time()
 
     def _get_pending_and_awaiting_counts(self) -> Tuple[int, int]:
         """Calculate current pending queue count (unscouted, eligible) and awaiting IV count."""
@@ -1082,7 +1096,14 @@ class IVQueueManager:
             self._dragonite_queue_value is None or dragonite_age is None
             or dragonite_age > _DRAGONITE_STALE_AFTER_SECONDS
         )
-        
+        rate_limit_waiters_age = (
+            now - self._dragonite_rate_limit_waiters_updated_at
+        ) if self._dragonite_rate_limit_waiters_updated_at else None
+        rate_limit_waiters_stale = (
+            self._dragonite_rate_limit_waiters is None or rate_limit_waiters_age is None
+            or rate_limit_waiters_age > _DRAGONITE_STALE_AFTER_SECONDS
+        )
+
         failed_scouts = self._recent_scout_outcomes.count(False)
         total_recent = max(1, len(self._recent_scout_outcomes))
         error_rate_pct = round((failed_scouts / total_recent) * 100.0, 1) if self._recent_scout_outcomes else 0.0
@@ -1105,6 +1126,9 @@ class IVQueueManager:
             "dragonite_queue_threshold_config": AppConfig.dragonite_queue_threshold,
             "dragonite_queue_clear_seconds_config": AppConfig.dragonite_queue_clear_seconds,
             "dragonite_queue_poll_interval_seconds_config": AppConfig.dragonite_queue_poll_interval_seconds,
+            "dragonite_rate_limit_waiters": self._dragonite_rate_limit_waiters,
+            "dragonite_rate_limit_waiters_stale": rate_limit_waiters_stale,
+            "dragonite_rate_limit_waiters_threshold_config": AppConfig.dragonite_rate_limit_waiters_threshold,
             "baseline_awaiting_iv": self._baseline_awaiting_iv,
             "target_awaiting_iv": self._pause_drain_target(),
             "current_awaiting_iv": awaiting_iv_count,
@@ -1396,15 +1420,18 @@ class IVQueueManager:
         # Redundant with throttling.log, but surfaced in the main log too so it's
         # visible without tailing a second file.
         stats = self.get_self_tuning_stats(pending, awaiting_iv)
-        dragonite_str = f"{stats['dragonite_queue_value']}"
+        scout_queue_str = f"{stats['dragonite_queue_value']}"
         if stats["dragonite_queue_stale"]:
-            dragonite_str += " (stale)"
+            scout_queue_str += " (stale)"
+        waiters_str = f"{stats['dragonite_rate_limit_waiters']}"
+        if stats["dragonite_rate_limit_waiters_stale"]:
+            waiters_str += " (stale)"
         logger.opt(colors=True).info(
             f"<magenta>[Self-Tuning]</magenta> step=<yellow>{stats['throttled_step']}</yellow> | "
-            f"dragonite_queue=<cyan>{dragonite_str}</cyan>/{stats['dragonite_queue_threshold_config']} | "
+            f"scout_queue=<cyan>{scout_queue_str}</cyan>/{stats['dragonite_queue_threshold_config']} | "
+            f"rate_limit_waiters=<cyan>{waiters_str}</cyan>/{stats['dragonite_rate_limit_waiters_threshold_config']} | "
             f"backlog=<cyan>{stats['pending_backlog_elapsed_sec']}s</cyan>/{stats['throttle_backlog_seconds_config']}s | "
-            f"pause_elapsed=<cyan>{stats['pause_elapsed_sec']}s</cyan> remaining={stats['pause_remaining_sec']}s reason={stats['pause_reason']} | "
-            f"utilization=<cyan>{stats['worker_utilization_pct']}%</cyan> error_rate={stats['recent_error_rate_pct']}%"
+            f"pause_elapsed=<cyan>{stats['pause_elapsed_sec']}s</cyan> remaining={stats['pause_remaining_sec']}s reason={stats['pause_reason']}"
         )
 
         if queue_size > 0:
