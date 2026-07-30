@@ -79,10 +79,10 @@
         "timeout_iv": 120,
         "wild_scout_delay": 0
     },
-    "_comment_dragonite": "Dragonite API credentials for sending IV/cell scout requests. rate_limit_monitor polls Dragonite's own /global-rate-limit endpoint and resets it if waiters exceeds the threshold.",
+    "_comment_dragonite": "Dragonite API credentials for sending IV/cell scout requests. global_rate_limit_monitor polls Dragonite's own /global-rate-limit endpoint and resets it if waiters exceeds the threshold.",
     "dragonite": {
         "api_base_url": "",
-        "rate_limit_monitor": {
+        "global_rate_limit_monitor": {
             "poll_interval_seconds": 1.0,
             "waiters_threshold": 20,
             "reset_cooldown_seconds": 30

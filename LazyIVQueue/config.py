@@ -281,7 +281,7 @@ DRAGONITE_API_BASE_URL = dragonite_config.get("api_base_url", None)
 
 # Dragonite global rate limit monitor: polls Dragonite's own /global-rate-limit
 # state and resets it if too many requests pile up waiting on it.
-dragonite_rate_limit_config = dragonite_config.get("rate_limit_monitor", {})
+dragonite_rate_limit_config = dragonite_config.get("global_rate_limit_monitor", {})
 dragonite_rate_limit_poll_interval_seconds: float = float(dragonite_rate_limit_config.get("poll_interval_seconds", 1.0))
 dragonite_rate_limit_waiters_threshold: int = dragonite_rate_limit_config.get("waiters_threshold", 20)
 dragonite_rate_limit_reset_cooldown_seconds: float = float(dragonite_rate_limit_config.get("reset_cooldown_seconds", 30))
