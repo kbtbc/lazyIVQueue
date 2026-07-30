@@ -5,13 +5,19 @@ to a separate file with timestamps and key statistics.
 """
 
 import json
+import os
 import time
 from typing import Dict, Any
+
+# Use an absolute path next to this module so the log is always found
+_LOG_DIR = os.path.dirname(os.path.abspath(__file__))
+_LOG_PATH = os.path.join(_LOG_DIR, "throttling.log")
+
 
 def log_throttling_event(event_type: str, status: str, manager, **kwargs) -> None:
     """
     Log throttling events to a separate file with timestamp and key stats.
-    
+
     Args:
         event_type (str): Type of event (e.g., "CIRCUIT_BREAKER_PAUSED", "RECOVERING")
         status (str): Current tuning status
@@ -21,11 +27,11 @@ def log_throttling_event(event_type: str, status: str, manager, **kwargs) -> Non
     try:
         # Read existing log entries
         try:
-            with open("throttling.log", "r") as f:
+            with open(_LOG_PATH, "r") as f:
                 log_entries = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             log_entries = []
-        
+
         # Create new log entry using manager's properties
         entry = {
             "timestamp": time.time(),
@@ -38,28 +44,29 @@ def log_throttling_event(event_type: str, status: str, manager, **kwargs) -> Non
             "baseline_scout_percent": manager._baseline_scout_percent(),
             "concurrency": manager._current_concurrency,
             "manual_pause": manager._manual_pause,
-            "pause_reason": getattr(manager, '_pause_reason', ''),
-            "total_pauses_triggered": manager._total_pauses_triggered
+            "pause_reason": getattr(manager, "_pause_reason", ""),
+            "total_pauses_triggered": manager._total_pauses_triggered,
         }
-        
+
         # Add any additional key metrics from kwargs
         entry.update(kwargs)
-        
+
         # Add to log entries
         log_entries.append(entry)
-        
+
         # Write back to file
-        with open("throttling.log", "w") as f:
+        with open(_LOG_PATH, "w") as f:
             json.dump(log_entries, f, indent=2)
     except Exception as e:
-        # Silently fail to avoid breaking the main application
-        pass
+        # Surface the error so we can diagnose logging failures
+        print(f"[throttling] Failed to write log entry: {e}")
+
 
 # Initialize throttling log file
 def init_throttling_log() -> None:
     """Initialize the throttling log file."""
     try:
-        with open("throttling.log", "w") as f:
+        with open(_LOG_PATH, "w") as f:
             json.dump([], f)
     except Exception as e:
         print(f"Failed to initialize throttling log: {e}")
