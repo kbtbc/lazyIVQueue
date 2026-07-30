@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import heapq
 import time
-import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -524,7 +523,6 @@ class IVQueueManager:
         exclusive access). Used by full resets and after config edits, since a stale
         THROTTLED/BOOSTED percent must not survive an operator-initiated change.
         """
-        old_status = self._tuning_status
         self._tuning_status = "NORMAL"
         self._throttled_step = 0
         self._pause_rarity_during_throttle = False
@@ -594,9 +592,12 @@ class IVQueueManager:
         step_delta = round(float(AppConfig.tuning_step_factor), 4)
 
         if self._manual_pause:
-            self._tuning_status = "MANUALLY_PAUSED"
-            from LazyIVQueue.queue.throttling import log_throttling_event
-            log_throttling_event("MANUAL_PAUSE", "MANUALLY_PAUSED", self)
+            # Log the transition only - this branch runs on every evaluation while
+            # paused, and logging unconditionally floods the throttling log.
+            if self._tuning_status != "MANUALLY_PAUSED":
+                self._tuning_status = "MANUALLY_PAUSED"
+                from LazyIVQueue.queue.throttling import log_throttling_event
+                log_throttling_event("MANUAL_PAUSE", "MANUALLY_PAUSED", self)
             return
 
         if not AppConfig.self_tuning_enabled:
@@ -675,8 +676,7 @@ class IVQueueManager:
                 # Release conservatively: the percent that tripped the breaker is known-bad,
                 # so resume below baseline and let the dead band climb back on its own.
                 # No shedding while recovering - the queue is already empty.
-                from LazyIVQueue.queue.throttling import log_throttling_event
-                log_throttling_event("CIRCUIT_BREAKER_RELEASED", "RECOVERING", self)
+                released_reason = self._pause_reason
                 self._tuning_status = "RECOVERING"
                 self._throttled_step = 0
                 self._current_scout_percent = round(float(AppConfig.tuning_step_factor), 4)
@@ -694,6 +694,15 @@ class IVQueueManager:
                     f"<green>[Self-Tuning]</green> CIRCUIT BREAKER RELEASED: Pause duration ({pause_elapsed:.1f}s >= {AppConfig.min_hard_pause_duration}s), "
                     f"pending queue drained (0), and awaiting IV drained ({current_awaiting_iv} <= {target_awaiting_iv}). "
                     f"Queue entering RECOVERING state with conservative scout baseline ({self._current_scout_percent:.4f}%). All {self._current_concurrency} scouts active."
+                )
+                # Logged after the state mutations so the entry records the new state
+                from LazyIVQueue.queue.throttling import log_throttling_event
+                log_throttling_event(
+                    "CIRCUIT_BREAKER_RELEASED", "RECOVERING", self,
+                    pending_count=pending_count,
+                    awaiting_iv_count=current_awaiting_iv,
+                    pause_elapsed=round(pause_elapsed, 1),
+                    released_reason=released_reason,
                 )
             return
 
@@ -861,10 +870,9 @@ class IVQueueManager:
             elif self._tuning_status == "RECOVERING" and self._high_util_start_time is None and self._low_util_start_time is None:
                 # Utilization is inside the dead band while below baseline: this is a stable
                 # equilibrium, not a recovery in progress, so report it as THROTTLED.
-                old_status = self._tuning_status
                 self._tuning_status = self._status_for_percent(self._current_scout_percent, baseline_pct)
                 from LazyIVQueue.queue.throttling import log_throttling_event
-                log_throttling_event("EQUILRIUM", self._tuning_status, self)
+                log_throttling_event("EQUILIBRIUM", self._tuning_status, self)
 
     async def pause_queue_manual(self) -> Dict[str, Any]:
         """Manually pause scout dispatching."""

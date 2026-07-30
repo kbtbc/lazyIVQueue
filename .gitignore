@@ -22,6 +22,8 @@ __pycache__/
 # Data & Configs
 data/*
 logs/
+LazyIVQueue/queue/throttling.log
+LazyIVQueue/queue/.throttling.*.tmp
 LazyIVQueue/config/config.json
 docker-compose.yml
 LazyIVQueue/raw_parser.py

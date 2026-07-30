@@ -4,14 +4,65 @@ This module provides functions to log circuit breaker and throttling events
 to a separate file with timestamps and key statistics.
 """
 
+from __future__ import annotations
+
 import json
 import os
+import tempfile
 import time
-from typing import Dict, Any
+from typing import Any, Dict, Optional, Tuple
+
+from LazyIVQueue.utils.logger import logger
 
 # Use an absolute path next to this module so the log is always found
 _LOG_DIR = os.path.dirname(os.path.abspath(__file__))
 _LOG_PATH = os.path.join(_LOG_DIR, "throttling.log")
+
+# The whole array is rewritten on every event, so an uncapped file turns a long
+# session into O(n^2) work. Keep the most recent window instead.
+_MAX_ENTRIES = 2000
+
+
+def _read_entries() -> list:
+    """Load existing entries, tolerating a missing, empty or corrupt file."""
+    try:
+        with open(_LOG_PATH, "r") as f:
+            entries = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+    # Guard against a hand-edited file holding something that is not an array
+    return entries if isinstance(entries, list) else []
+
+
+def _write_entries(entries: list) -> None:
+    """Replace the log file atomically so a crash mid-write cannot corrupt it."""
+    fd, tmp_path = tempfile.mkstemp(dir=_LOG_DIR, prefix=".throttling.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(entries, f, indent=2)
+        os.replace(tmp_path, _LOG_PATH)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _queue_counts(manager) -> Tuple[Optional[int], Optional[int]]:
+    """(pending, awaiting_iv) read from the manager, or (None, None) if unavailable."""
+    try:
+        pending, awaiting = manager._get_pending_and_awaiting_counts()
+        return int(pending), int(awaiting)
+    except Exception:
+        return None, None
+
+
+def _baseline_percent(manager) -> Optional[float]:
+    try:
+        return manager._baseline_scout_percent()
+    except Exception:
+        return None
 
 
 def log_throttling_event(event_type: str, status: str, manager, **kwargs) -> None:
@@ -22,51 +73,63 @@ def log_throttling_event(event_type: str, status: str, manager, **kwargs) -> Non
         event_type (str): Type of event (e.g., "CIRCUIT_BREAKER_PAUSED", "RECOVERING")
         status (str): Current tuning status
         manager: IVQueueManager instance for accessing stats
-        **kwargs: Additional event-specific data to log
+        **kwargs: Additional event-specific data to log. Callers already holding
+            fresh counts should pass pending_count/awaiting_iv_count to skip the
+            recount below.
     """
     try:
-        # Read existing log entries
-        try:
-            with open(_LOG_PATH, "r") as f:
-                log_entries = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            log_entries = []
+        log_entries = _read_entries()
 
-        # Create new log entry using manager's properties
-        entry = {
-            "timestamp": time.time(),
+        now = time.time()
+        entry: Dict[str, Any] = {
+            "timestamp": now,
+            "time_utc": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(now)),
             "event": event_type,
             "status": status,
-            "pending_count": manager.pending_count,
-            "awaiting_iv_count": manager.awaiting_iv_count,
-            "scout_percent": manager._current_scout_percent,
-            "throttled_step": manager._throttled_step,
-            "baseline_scout_percent": manager._baseline_scout_percent(),
-            "concurrency": manager._current_concurrency,
-            "manual_pause": manager._manual_pause,
-            "pause_reason": getattr(manager, "_pause_reason", ""),
-            "total_pauses_triggered": manager._total_pauses_triggered,
         }
+
+        # Counting is an O(n) scan of the queue, so only do it when the caller
+        # did not already hand us the numbers.
+        pending = kwargs.pop("pending_count", None)
+        awaiting = kwargs.pop("awaiting_iv_count", None)
+        if pending is None or awaiting is None:
+            counted_pending, counted_awaiting = _queue_counts(manager)
+            pending = counted_pending if pending is None else pending
+            awaiting = counted_awaiting if awaiting is None else awaiting
+        entry["pending_count"] = pending
+        entry["awaiting_iv_count"] = awaiting
+
+        # getattr defaults keep one renamed attribute from discarding the whole entry
+        entry.update({
+            "scout_percent": getattr(manager, "_current_scout_percent", None),
+            "throttled_step": getattr(manager, "_throttled_step", None),
+            "baseline_scout_percent": _baseline_percent(manager),
+            "concurrency": getattr(manager, "_current_concurrency", None),
+            "manual_pause": getattr(manager, "_manual_pause", None),
+            "pause_reason": getattr(manager, "_pause_reason", ""),
+            "total_pauses_triggered": getattr(manager, "_total_pauses_triggered", None),
+            # Live status, which can differ from `status` when a call site logs
+            # before it mutates _tuning_status.
+            "tuning_status": getattr(manager, "_tuning_status", None),
+        })
 
         # Add any additional key metrics from kwargs
         entry.update(kwargs)
 
-        # Add to log entries
         log_entries.append(entry)
+        if len(log_entries) > _MAX_ENTRIES:
+            del log_entries[:-_MAX_ENTRIES]
 
-        # Write back to file
-        with open(_LOG_PATH, "w") as f:
-            json.dump(log_entries, f, indent=2)
+        _write_entries(log_entries)
     except Exception as e:
         # Surface the error so we can diagnose logging failures
-        print(f"[throttling] Failed to write log entry: {e}")
+        logger.warning(f"[throttling] Failed to write log entry ({event_type}): {e}")
 
 
 # Initialize throttling log file
 def init_throttling_log() -> None:
-    """Initialize the throttling log file."""
+    """Initialize (truncate) the throttling log file for a fresh session."""
     try:
-        with open(_LOG_PATH, "w") as f:
-            json.dump([], f)
+        _write_entries([])
     except Exception as e:
-        print(f"Failed to initialize throttling log: {e}")
+        logger.error(f"Failed to initialize throttling log: {e}")
