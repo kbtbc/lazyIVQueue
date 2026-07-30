@@ -20,6 +20,7 @@ from LazyIVQueue.utils.pokemon import load_pokemon_names
 from LazyIVQueue.utils.koji_geofences import KojiGeofenceManager
 from LazyIVQueue.queue.iv_queue import IVQueueManager
 from LazyIVQueue.scout.coordinator import ScoutCoordinator
+from LazyIVQueue.scout.dragonite_queue_monitor import DragoniteQueueMonitor
 from LazyIVQueue.api.server import LazyIVQueueServer
 
 
@@ -42,6 +43,7 @@ class LazyIVQueueApp:
         self._queue_manager: Optional[IVQueueManager] = None
         self._server: Optional[LazyIVQueueServer] = None
         self._scout_coordinator: Optional[ScoutCoordinator] = None
+        self._dragonite_queue_monitor: Optional[DragoniteQueueMonitor] = None
         self._shutdown_event: asyncio.Event = asyncio.Event()
         self._cleanup_task: Optional[asyncio.Task] = None
 
@@ -81,6 +83,11 @@ class LazyIVQueueApp:
         logger.info("Starting scout coordinator...")
         self._scout_coordinator = await ScoutCoordinator.get_instance()
         await self._scout_coordinator.start()
+
+        # 4b. Start Dragonite scout queue monitor (circuit breaker's primary backlog signal)
+        logger.info("Starting Dragonite queue monitor...")
+        self._dragonite_queue_monitor = await DragoniteQueueMonitor.get_instance()
+        await self._dragonite_queue_monitor.start()
 
         # 5. Start cleanup task for expired entries
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
@@ -148,6 +155,9 @@ class LazyIVQueueApp:
                 pass
 
         # Stop in reverse order
+        if self._dragonite_queue_monitor:
+            await self._dragonite_queue_monitor.stop()
+
         if self._scout_coordinator:
             await self._scout_coordinator.stop()
 

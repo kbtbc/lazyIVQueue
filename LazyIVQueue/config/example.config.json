@@ -53,7 +53,10 @@
             "throttle_backlog_seconds": 45,
             "hard_pause_backlog_seconds": 90,
             "min_hard_pause_duration": 60,
-            "worker_recovery_percent": 50.0
+            "worker_recovery_percent": 50.0,
+            "dragonite_queue_poll_interval_seconds": 1.5,
+            "dragonite_queue_threshold": 5,
+            "dragonite_queue_clear_seconds": 10
         }
     },
     "_comment_koji": "Koji API settings for filtering and geofencing.",

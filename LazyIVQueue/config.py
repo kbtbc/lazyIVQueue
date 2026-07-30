@@ -88,6 +88,15 @@ throttle_backlog_seconds: int = circuit_breaker_config.get("throttle_backlog_sec
 hard_pause_backlog_seconds: int = circuit_breaker_config.get("hard_pause_backlog_seconds", 120)
 min_hard_pause_duration: int = circuit_breaker_config.get("min_hard_pause_duration", 60)
 worker_recovery_percent: int = circuit_breaker_config.get("worker_recovery_percent", 50)
+# Dragonite scout queue polling: the circuit breaker's primary backlog signal is the
+# real /scout/queue depth on Dragonite itself, not our own internal pending count.
+dragonite_queue_poll_interval_seconds: float = float(circuit_breaker_config.get("dragonite_queue_poll_interval_seconds", 1.5))
+# Tolerance band, not literal zero - Stage 1 still trickles VIP entries into the real
+# queue, so a brief bump to 1-2 must not count as "backed up".
+dragonite_queue_threshold: int = circuit_breaker_config.get("dragonite_queue_threshold", 5)
+# How long the queue must stay at/below the threshold, continuously, before the
+# backlog timer is considered cleared.
+dragonite_queue_clear_seconds: int = circuit_breaker_config.get("dragonite_queue_clear_seconds", 10)
 # tuning_interval_seconds: time horizon for tuning decisions
 tuning_interval_seconds: int = self_tuning_config.get("tuning_interval_seconds", 30)
 tuning_step_factor: float = float(self_tuning_config.get("tuning_step_factor", 0.005))
@@ -125,6 +134,7 @@ def reload_config() -> Dict[str, any]:
     global geofence_expire_cache_seconds, geofence_refresh_cache_seconds
     global self_tuning_config, self_tuning_enabled, iv_baseline_percent, cell_baseline_percent
     global circuit_breaker_config, throttle_backlog_seconds, hard_pause_backlog_seconds, min_hard_pause_duration, worker_recovery_percent
+    global dragonite_queue_poll_interval_seconds, dragonite_queue_threshold, dragonite_queue_clear_seconds
     global tuning_interval_seconds, tuning_step_factor, max_scout_percent
     global too_many_workers_percent, too_few_workers_percent
 
@@ -226,6 +236,9 @@ def reload_config() -> Dict[str, any]:
         hard_pause_backlog_seconds = circuit_breaker_config.get("hard_pause_backlog_seconds", 120)
         min_hard_pause_duration = circuit_breaker_config.get("min_hard_pause_duration", 60)
         worker_recovery_percent = circuit_breaker_config.get("worker_recovery_percent", 50)
+        dragonite_queue_poll_interval_seconds = float(circuit_breaker_config.get("dragonite_queue_poll_interval_seconds", 1.5))
+        dragonite_queue_threshold = circuit_breaker_config.get("dragonite_queue_threshold", 5)
+        dragonite_queue_clear_seconds = circuit_breaker_config.get("dragonite_queue_clear_seconds", 10)
         tuning_interval_seconds = self_tuning_config.get("tuning_interval_seconds", 30)
         tuning_step_factor = float(self_tuning_config.get("tuning_step_factor", 0.005))
         max_scout_percent = float(self_tuning_config.get("max_scout_percent", 1.0))

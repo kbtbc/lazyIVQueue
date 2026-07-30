@@ -13,6 +13,11 @@ from LazyIVQueue.utils.encounter_utils import normalize_encounter_id
 from LazyIVQueue.queue.throttling import config_snapshot, log_event, log_sample, log_session_start
 import LazyIVQueue.config as AppConfig
 
+# A polled reading older than this is treated as unknown rather than trusted - a
+# stuck/failed poller must not look like "queue is clear" and silently release
+# the circuit breaker, nor look like "queue is backed up" and trip it.
+_DRAGONITE_STALE_AFTER_SECONDS = 15.0
+
 
 @dataclass(order=True)
 class QueueEntry:
@@ -133,9 +138,18 @@ class IVQueueManager:
         self._pause_rarity_during_throttle: bool = False
         self._current_scout_percent: float = self._baseline_scout_percent()
         self._manual_pause: bool = False
-        self._pending_backlog_start_time: Optional[float] = None
+        self._dragonite_backlog_start_time: Optional[float] = None
         self._pause_start_time: Optional[float] = None
         self._pause_reason: str = ""
+
+        # Latest Dragonite /scout/queue reading, pushed in by DragoniteQueueMonitor on
+        # its own poll interval (decoupled from how often the tuner itself runs).
+        self._dragonite_queue_value: Optional[int] = None
+        self._dragonite_queue_updated_at: Optional[float] = None
+        # How long the reading has continuously stayed at/below the tolerance
+        # threshold - the debounce that keeps a brief VIP-driven blip from
+        # clearing the backlog timer.
+        self._dragonite_low_since: Optional[float] = None
         self._baseline_awaiting_iv: int = 0
         self._total_pauses_triggered: int = 0
         self._recent_scout_outcomes: List[bool] = []
@@ -433,6 +447,18 @@ class IVQueueManager:
         if len(self._recent_scout_outcomes) > 30:
             self._recent_scout_outcomes.pop(0)
 
+    def set_dragonite_queue_value(self, value: Optional[int]) -> None:
+        """
+        Push in the latest polled Dragonite /scout/queue depth.
+
+        Called by DragoniteQueueMonitor on its own interval, not by the tuner -
+        a plain attribute write is enough here since there is nothing else to
+        keep consistent with it. `value=None` marks a failed poll; the tuner
+        treats a stale/missing reading as unknown, not as "clear".
+        """
+        self._dragonite_queue_value = value
+        self._dragonite_queue_updated_at = time.time()
+
     def _get_pending_and_awaiting_counts(self) -> Tuple[int, int]:
         """Calculate current pending queue count (unscouted, eligible) and awaiting IV count."""
         now = time.time()
@@ -527,7 +553,8 @@ class IVQueueManager:
         self._pause_rarity_during_throttle = False
         self._current_scout_percent = self._baseline_scout_percent()
         self._last_baseline_pct = self._current_scout_percent
-        self._pending_backlog_start_time = None
+        self._dragonite_backlog_start_time = None
+        self._dragonite_low_since = None
         self._pause_start_time = None
         self._pause_reason = ""
         self._baseline_awaiting_iv = 0
@@ -662,6 +689,38 @@ class IVQueueManager:
         else:
             self._low_util_start_time = None
 
+        # Dragonite /scout/queue polling: the real scanning-infrastructure backlog,
+        # not our own internal pending count. DragoniteQueueMonitor pushes readings
+        # in on its own interval; here we only read the cache and debounce it.
+        dragonite_value = self._dragonite_queue_value
+        dragonite_age = (now - self._dragonite_queue_updated_at) if self._dragonite_queue_updated_at else None
+        dragonite_stale = (
+            dragonite_value is None or dragonite_age is None or dragonite_age > _DRAGONITE_STALE_AFTER_SECONDS
+        )
+        dragonite_threshold = AppConfig.dragonite_queue_threshold
+        # Set only at the moment the backlog timer clears, so the else-branch below can
+        # still report the total elapsed even though the timer itself is already None.
+        dragonite_backlog_cleared_elapsed = None
+
+        if not dragonite_stale:
+            if dragonite_value > dragonite_threshold:
+                # Any reading above tolerance breaks a low streak and (re)starts the
+                # shared backlog timer that drives Stage 1 / Stage 2.
+                self._dragonite_low_since = None
+                if self._dragonite_backlog_start_time is None:
+                    self._dragonite_backlog_start_time = now
+            else:
+                if self._dragonite_low_since is None:
+                    self._dragonite_low_since = now
+                # Sustained low reading, not a single sample at/below threshold - Stage 1
+                # still trickles VIP entries in, so a brief bump to 1-2 must not clear this.
+                if (self._dragonite_backlog_start_time is not None
+                        and now - self._dragonite_low_since >= AppConfig.dragonite_queue_clear_seconds):
+                    dragonite_backlog_cleared_elapsed = now - self._dragonite_backlog_start_time
+                    self._dragonite_backlog_start_time = None
+        # Stale readings freeze both timers where they are - neither a trigger nor a clear.
+        dragonite_low = (not dragonite_stale) and dragonite_value <= dragonite_threshold
+
         # STAGE 2: Circuit Breaker PAUSED State (Hard Emergency Stop)
         if self._tuning_status == "PAUSED":
             pause_elapsed = now - (self._pause_start_time or now)
@@ -670,8 +729,11 @@ class IVQueueManager:
             time_condition = pause_elapsed >= AppConfig.min_hard_pause_duration
             pending_condition = pending_count == 0
             awaiting_condition = current_awaiting_iv <= target_awaiting_iv
+            # A stale reading blocks release rather than being treated as "clear" -
+            # an unreachable/dead poller must not look like a drained queue.
+            dragonite_condition = dragonite_low
 
-            if time_condition and pending_condition and awaiting_condition:
+            if time_condition and pending_condition and awaiting_condition and dragonite_condition:
                 # Release conservatively: the percent that tripped the breaker is known-bad,
                 # so resume below baseline and let the dead band climb back on its own.
                 # No shedding while recovering - the queue is already empty.
@@ -681,7 +743,8 @@ class IVQueueManager:
                 self._throttled_step = 0
                 self._current_scout_percent = round(float(AppConfig.tuning_step_factor), 4)
                 self._pause_start_time = None
-                self._pending_backlog_start_time = None
+                self._dragonite_backlog_start_time = None
+                self._dragonite_low_since = None
                 self._pause_reason = ""
                 self._baseline_awaiting_iv = 0
                 # Restart the utilization timers so the drain tail does not immediately
@@ -692,7 +755,8 @@ class IVQueueManager:
 
                 logger.opt(colors=True).info(
                     f"<green>[Self-Tuning]</green> CIRCUIT BREAKER RELEASED: Pause duration ({pause_elapsed:.1f}s >= {AppConfig.min_hard_pause_duration}s), "
-                    f"pending queue drained (0), and awaiting IV drained ({current_awaiting_iv} <= {target_awaiting_iv}). "
+                    f"pending queue drained (0), awaiting IV drained ({current_awaiting_iv} <= {target_awaiting_iv}), "
+                    f"and Dragonite scout queue back at/below threshold ({dragonite_value} <= {dragonite_threshold}). "
                     f"Queue entering RECOVERING state with conservative scout baseline ({self._current_scout_percent:.4f}%). All {self._current_concurrency} scouts active."
                 )
                 # Logged after the state mutations so the entry records the new state
@@ -706,7 +770,7 @@ class IVQueueManager:
                     released_reason=released_reason,
                 )
             else:
-                # Which of the three release conditions is still holding the pause -
+                # Which of the four release conditions is still holding the pause -
                 # the whole point of reviewing a long pause afterwards.
                 log_sample(
                     self, pending=pending_count, awaiting=current_awaiting_iv,
@@ -716,16 +780,16 @@ class IVQueueManager:
                             ("min_duration", time_condition),
                             ("pending_drain", pending_condition),
                             ("awaiting_drain", awaiting_condition),
+                            ("dragonite_queue", dragonite_condition),
                         ) if not met
                     ],
                 )
             return
 
-        # Monitor pending backlog buildup
-        if pending_count > 0:
-            if self._pending_backlog_start_time is None:
-                self._pending_backlog_start_time = now
-            backlog_elapsed = now - self._pending_backlog_start_time
+        # Monitor Dragonite scout queue backlog buildup (the timer itself was already
+        # started/held/cleared above, against the tolerance-band debounce).
+        if self._dragonite_backlog_start_time is not None:
+            backlog_elapsed = now - self._dragonite_backlog_start_time
 
             # If we were BOOSTED above baseline, return to baseline if backlog persists or pending exceeds active scouts
             if self._current_scout_percent > baseline_pct:
@@ -761,7 +825,10 @@ class IVQueueManager:
                 # baseline and let the release fire immediately).
                 self._baseline_awaiting_iv = max(1, current_awaiting_iv)
                 self._total_pauses_triggered += 1
-                self._pause_reason = f"Pending backlog persisted for {backlog_elapsed:.1f}s (hard limit: {AppConfig.hard_pause_backlog_seconds}s)"
+                self._pause_reason = (
+                    f"Dragonite scout queue ({dragonite_value}) stayed above threshold "
+                    f"({dragonite_threshold}) for {backlog_elapsed:.1f}s (hard limit: {AppConfig.hard_pause_backlog_seconds}s)"
+                )
                 self._high_util_start_time = None
                 self._low_util_start_time = None
 
@@ -778,7 +845,8 @@ class IVQueueManager:
                 )
                 logger.opt(colors=True).warning(
                     f"<red>[Self-Tuning]</red> CIRCUIT BREAKER TRIGGERED Stage 2: {self._pause_reason}. "
-                    f"Pausing dispatching & webhook queueing for min {AppConfig.min_hard_pause_duration}s until pending=0 and awaiting IV <= {target}. Purged {cleared} backlog entries."
+                    f"Pausing dispatching & webhook queueing for min {AppConfig.min_hard_pause_duration}s until pending=0, awaiting IV <= {target}, "
+                    f"and Dragonite scout queue <= {dragonite_threshold}. Purged {cleared} backlog entries."
                 )
 
             # STAGE 1: Throttled / Dynamic Rarity Load Tuning (Stepping DOWN)
@@ -792,7 +860,8 @@ class IVQueueManager:
                     self._current_scout_percent = max(0.001, round(self._current_scout_percent - step_delta, 4))
                     self._last_concurrency_adjustment_time = now
                     logger.opt(colors=True).warning(
-                        f"<yellow>[Self-Tuning]</yellow> STAGE 1 BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.throttle_backlog_seconds}s). "
+                        f"<yellow>[Self-Tuning]</yellow> STAGE 1 BACKLOG RELIEF: Dragonite scout queue ({dragonite_value}) above threshold "
+                        f"({dragonite_threshold}) for {backlog_elapsed:.1f}s (>= {AppConfig.throttle_backlog_seconds}s). "
                         f"Tightening scout baseline ({old_pct:.4f}% -> {self._current_scout_percent:.4f}%). All {self._current_concurrency} scouts active."
                     )
                     # Aggressively purge all non-ivlist entries
@@ -859,26 +928,24 @@ class IVQueueManager:
                     )
 
         else:
-            # Pending count is 0: clear backlog timer. Tuning is now driven by sustained
-            # worker utilization over the tuning interval time horizon (dead band):
+            # Dragonite backlog timer is clear (or never started). Tuning is now driven by
+            # sustained worker utilization over the tuning interval time horizon (dead band):
             #   utilization >= too_many_workers_percent -> step DOWN (workers saturated, backlog imminent)
             #   utilization <= too_few_workers_percent  -> step UP (workers starved, capacity idle)
             #   in between                              -> hold steady (equilibrium found)
-            backlog_started = self._pending_backlog_start_time
-            self._pending_backlog_start_time = None
 
-            # The pending queue is clear, so backlog-driven load shedding no longer applies.
+            # The backlog is clear, so backlog-driven load shedding no longer applies.
             # Clearing this is what keeps a stale step from an earlier backlog out of the
             # utilization-driven path (where it would silently shed celllist/auto-rarity).
             self._throttled_step = 0
             self._pause_rarity_during_throttle = False
 
             if self._tuning_status == "BACKLOG_WARNING":
-                backlog_total = round(now - backlog_started, 1) if backlog_started else 0.0
+                backlog_total = round(dragonite_backlog_cleared_elapsed, 1) if dragonite_backlog_cleared_elapsed else 0.0
                 self._tuning_status = self._status_for_percent(self._current_scout_percent, baseline_pct)
                 # Cleared without ever throttling: the warning threshold may be tighter
                 # than it needs to be if this keeps happening.
-                log_event("BACKLOG_CLEARED", self, pending=0, awaiting=current_awaiting_iv,
+                log_event("BACKLOG_CLEARED", self, pending=pending_count, awaiting=current_awaiting_iv,
                           backlog_total_s=backlog_total)
 
             interval = AppConfig.tuning_interval_seconds
@@ -898,7 +965,7 @@ class IVQueueManager:
                     # leaves no other trace of why the percent drifted down.
                     log_event(
                         "HIGH_UTILIZATION", self,
-                        pending=0, awaiting=current_awaiting_iv,
+                        pending=pending_count, awaiting=current_awaiting_iv,
                         from_pct=old_pct,
                         threshold=AppConfig.too_many_workers_percent,
                         floor_hit=new_pct <= 0.0005 + 1e-9,
@@ -911,7 +978,7 @@ class IVQueueManager:
                 elif new_pct == old_pct:
                     # Sustained saturation that the tuner can no longer answer: it is
                     # already at the floor. Worth one line, not one per pass.
-                    log_sample(self, pending=0, awaiting=current_awaiting_iv,
+                    log_sample(self, pending=pending_count, awaiting=current_awaiting_iv,
                                note="high_util_at_floor")
 
             elif low_sustained and step_ready and not rarity_calibrating:
@@ -937,7 +1004,7 @@ class IVQueueManager:
                             self._tuning_status = "RECOVERING"
                         log_event(
                             "WORKERS_IDLE", self,
-                            pending=0, awaiting=current_awaiting_iv,
+                            pending=pending_count, awaiting=current_awaiting_iv,
                             from_pct=old_pct,
                             threshold=AppConfig.too_few_workers_percent,
                             # Jumped off the floor rather than adding one step
@@ -960,7 +1027,7 @@ class IVQueueManager:
                 self._tuning_status = self._status_for_percent(self._current_scout_percent, baseline_pct)
                 # Where the tuner settled below baseline is the single most useful
                 # number for choosing a new iv_baseline_percent.
-                log_event("EQUILIBRIUM", self, pending=0, awaiting=current_awaiting_iv,
+                log_event("EQUILIBRIUM", self, pending=pending_count, awaiting=current_awaiting_iv,
                           settled_below_baseline=round(baseline_pct - self._current_scout_percent, 4))
 
         # Fills in what happens between transitions. Rate limited and skipped while
@@ -1032,9 +1099,14 @@ class IVQueueManager:
     def get_self_tuning_stats(self, pending_count: int = 0, awaiting_iv_count: int = 0) -> Dict[str, Any]:
         """Return self-tuning state, metrics, and configuration telemetry."""
         now = time.time()
-        backlog_elapsed = round(now - self._pending_backlog_start_time, 1) if self._pending_backlog_start_time else 0.0
+        backlog_elapsed = round(now - self._dragonite_backlog_start_time, 1) if self._dragonite_backlog_start_time else 0.0
         pause_elapsed = round(now - self._pause_start_time, 1) if self._pause_start_time else 0.0
         pause_remaining = max(0.0, round(AppConfig.min_hard_pause_duration - pause_elapsed, 1)) if self._pause_start_time else 0.0
+        dragonite_age = (now - self._dragonite_queue_updated_at) if self._dragonite_queue_updated_at else None
+        dragonite_stale = (
+            self._dragonite_queue_value is None or dragonite_age is None
+            or dragonite_age > _DRAGONITE_STALE_AFTER_SECONDS
+        )
         
         failed_scouts = self._recent_scout_outcomes.count(False)
         total_recent = max(1, len(self._recent_scout_outcomes))
@@ -1053,6 +1125,11 @@ class IVQueueManager:
             "pending_backlog_elapsed_sec": backlog_elapsed,
             "pause_elapsed_sec": pause_elapsed,
             "pause_remaining_sec": pause_remaining,
+            "dragonite_queue_value": self._dragonite_queue_value,
+            "dragonite_queue_stale": dragonite_stale,
+            "dragonite_queue_threshold_config": AppConfig.dragonite_queue_threshold,
+            "dragonite_queue_clear_seconds_config": AppConfig.dragonite_queue_clear_seconds,
+            "dragonite_queue_poll_interval_seconds_config": AppConfig.dragonite_queue_poll_interval_seconds,
             "baseline_awaiting_iv": self._baseline_awaiting_iv,
             "target_awaiting_iv": self._pause_drain_target(),
             "current_awaiting_iv": awaiting_iv_count,

@@ -150,7 +150,7 @@ def _counts(manager, pending: Optional[int], awaiting: Optional[int]) -> Tuple[O
 # Elapsed-time signals: the tuner triggers on how long a condition has held, so
 # the log records the same durations rather than raw start timestamps.
 _TIMERS = (
-    ("backlog_s", "_pending_backlog_start_time"),
+    ("backlog_s", "_dragonite_backlog_start_time"),
     ("pause_s", "_pause_start_time"),
     ("high_util_s", "_high_util_start_time"),
     ("low_util_s", "_low_util_start_time"),
@@ -188,6 +188,10 @@ def _snapshot(manager, pending: Optional[int] = None, awaiting: Optional[int] = 
     # outside the tuner (manual pause, resets) still get a truthful number.
     if awaiting is not None:
         snap["util"] = round((awaiting / max(1, workers)) * 100.0, 1)
+
+    dragonite_value = getattr(manager, "_dragonite_queue_value", None)
+    if dragonite_value is not None:
+        snap["dragonite_queue"] = dragonite_value
 
     for key, attr in _TIMERS:
         started = getattr(manager, attr, None)
@@ -236,6 +240,9 @@ def config_snapshot() -> Dict[str, Any]:
         "hard_pause_backlog_seconds",
         "min_hard_pause_duration",
         "worker_recovery_percent",
+        "dragonite_queue_threshold",
+        "dragonite_queue_clear_seconds",
+        "dragonite_queue_poll_interval_seconds",
         "concurrency_scout",
         "auto_rarity_enabled",
     )
