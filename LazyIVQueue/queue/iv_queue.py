@@ -10,11 +10,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
 from LazyIVQueue.utils.encounter_utils import normalize_encounter_id
+from LazyIVQueue.queue.throttling import config_snapshot, log_event, log_sample, log_session_start
 import LazyIVQueue.config as AppConfig
-
-# Fraction of baseline the scout percent resumes at after a circuit breaker release.
-# The percent that tripped the breaker is known-bad, so recovery starts well below it.
-CIRCUIT_BREAKER_RELEASE_FACTOR = 0.25
 
 
 @dataclass(order=True)
@@ -152,9 +149,8 @@ class IVQueueManager:
         self._last_utilization_pct: float = 0.0
         self._was_calibrating: bool = False
         
-        # Initialize throttling log file
-        from LazyIVQueue.queue.throttling import init_throttling_log
-        init_throttling_log()
+        # Mark a new run in the (append-only) throttling log
+        log_session_start()
 
     @classmethod
     async def get_instance(cls) -> IVQueueManager:
@@ -522,6 +518,9 @@ class IVQueueManager:
         Return the tuner to a clean baseline state (internal; callers hold the lock or own
         exclusive access). Used by full resets and after config edits, since a stale
         THROTTLED/BOOSTED percent must not survive an operator-initiated change.
+
+        Does not log: every caller records its own event naming the reason for the reset,
+        and a generic entry here would only duplicate it.
         """
         self._tuning_status = "NORMAL"
         self._throttled_step = 0
@@ -537,8 +536,6 @@ class IVQueueManager:
         self._last_utilization_pct = 0.0
         # Give the tuner a full fresh interval at baseline before it steps either way
         self._last_concurrency_adjustment_time = time.time()
-        from LazyIVQueue.queue.throttling import log_throttling_event
-        log_throttling_event("BASELINE_RESET", "NORMAL", self)
 
     def _pause_drain_target(self) -> int:
         """Awaiting-IV count the circuit breaker must drain to before it releases."""
@@ -596,13 +593,13 @@ class IVQueueManager:
             # paused, and logging unconditionally floods the throttling log.
             if self._tuning_status != "MANUALLY_PAUSED":
                 self._tuning_status = "MANUALLY_PAUSED"
-                from LazyIVQueue.queue.throttling import log_throttling_event
-                log_throttling_event("MANUAL_PAUSE", "MANUALLY_PAUSED", self)
+                log_event("MANUAL_PAUSE", self)
             return
 
         if not AppConfig.self_tuning_enabled:
             if self._current_scout_percent != baseline_pct or self._tuning_status != "NORMAL":
                 self._reset_tuning_to_baseline()
+                log_event("TUNING_DISABLED", self)
             return
 
         # Check if auto-rarity system is in initial calibration state
@@ -625,6 +622,8 @@ class IVQueueManager:
                 f"<green>[Self-Tuning]</green> Calibration complete. Holding baseline scout baseline "
                 f"({baseline_pct:.4f}%) for at least one tuning interval ({AppConfig.tuning_interval_seconds}s) before tuning."
             )
+            # Marks where tuning actually starts - anything before this is idle workers
+            log_event("CALIBRATION_COMPLETE", self, hold_s=AppConfig.tuning_interval_seconds)
 
         # Skip all tuning adjustments during calibration — no data yet
         if rarity_calibrating:
@@ -677,6 +676,7 @@ class IVQueueManager:
                 # so resume below baseline and let the dead band climb back on its own.
                 # No shedding while recovering - the queue is already empty.
                 released_reason = self._pause_reason
+                from_pct = self._current_scout_percent
                 self._tuning_status = "RECOVERING"
                 self._throttled_step = 0
                 self._current_scout_percent = round(float(AppConfig.tuning_step_factor), 4)
@@ -696,13 +696,28 @@ class IVQueueManager:
                     f"Queue entering RECOVERING state with conservative scout baseline ({self._current_scout_percent:.4f}%). All {self._current_concurrency} scouts active."
                 )
                 # Logged after the state mutations so the entry records the new state
-                from LazyIVQueue.queue.throttling import log_throttling_event
-                log_throttling_event(
-                    "CIRCUIT_BREAKER_RELEASED", "RECOVERING", self,
-                    pending_count=pending_count,
-                    awaiting_iv_count=current_awaiting_iv,
-                    pause_elapsed=round(pause_elapsed, 1),
+                log_event(
+                    "CIRCUIT_BREAKER_RELEASED", self,
+                    pending=pending_count,
+                    awaiting=current_awaiting_iv,
+                    from_pct=from_pct,
+                    paused_for_s=round(pause_elapsed, 1),
+                    drain_target=target_awaiting_iv,
                     released_reason=released_reason,
+                )
+            else:
+                # Which of the three release conditions is still holding the pause -
+                # the whole point of reviewing a long pause afterwards.
+                log_sample(
+                    self, pending=pending_count, awaiting=current_awaiting_iv,
+                    drain_target=target_awaiting_iv,
+                    blocked_by=[
+                        name for name, met in (
+                            ("min_duration", time_condition),
+                            ("pending_drain", pending_condition),
+                            ("awaiting_drain", awaiting_condition),
+                        ) if not met
+                    ],
                 )
             return
 
@@ -714,14 +729,21 @@ class IVQueueManager:
 
             # If we were BOOSTED above baseline, return to baseline if backlog persists or pending exceeds active scouts
             if self._current_scout_percent > baseline_pct:
-                if backlog_elapsed >= (AppConfig.throttle_backlog_seconds * 0.5) or pending_count > max(1, self._current_concurrency):
+                sustained = backlog_elapsed >= (AppConfig.throttle_backlog_seconds * 0.5)
+                if sustained or pending_count > max(1, self._current_concurrency):
                     old_pct = self._current_scout_percent
                     self._current_scout_percent = baseline_pct
                     self._tuning_status = "NORMAL"
                     self._throttled_step = 0
                     self._last_concurrency_adjustment_time = now
-                    from LazyIVQueue.queue.throttling import log_throttling_event
-                    log_throttling_event("BOOSTED_TO_BASELINE", "NORMAL", self)
+                    log_event(
+                        "BOOSTED_TO_BASELINE", self,
+                        pending=pending_count, awaiting=current_awaiting_iv,
+                        from_pct=old_pct,
+                        # Which condition fired says whether the boost was too big
+                        # (pending spike) or just slightly too eager (slow build).
+                        trigger="backlog_sustained" if sustained else "pending_over_workers",
+                    )
                     logger.opt(colors=True).info(
                         f"<yellow>[Self-Tuning]</yellow> BACKLOG DETECTED: Returning boosted scout baseline to baseline "
                         f"({old_pct:.4f}% -> {baseline_pct:.4f}%)."
@@ -729,6 +751,7 @@ class IVQueueManager:
 
             # STAGE 2: Hard Circuit Breaker Pause if backlog stays persistent
             if backlog_elapsed >= AppConfig.hard_pause_backlog_seconds:
+                from_pct = self._current_scout_percent
                 self._tuning_status = "PAUSED"
                 self._throttled_step = 2
                 self._current_scout_percent = 0.0
@@ -745,8 +768,14 @@ class IVQueueManager:
                 # Clear pending/held unscouted items
                 cleared = self._clear_unscouted_backlog()
                 target = self._pause_drain_target()
-                from LazyIVQueue.queue.throttling import log_throttling_event
-                log_throttling_event("CIRCUIT_BREAKER_PAUSED", "PAUSED", self)
+                log_event(
+                    "CIRCUIT_BREAKER_PAUSED", self,
+                    pending=0, awaiting=current_awaiting_iv,
+                    from_pct=from_pct,
+                    pending_at_trip=pending_count,
+                    cleared=cleared,
+                    drain_target=target,
+                )
                 logger.opt(colors=True).warning(
                     f"<red>[Self-Tuning]</red> CIRCUIT BREAKER TRIGGERED Stage 2: {self._pause_reason}. "
                     f"Pausing dispatching & webhook queueing for min {AppConfig.min_hard_pause_duration}s until pending=0 and awaiting IV <= {target}. Purged {cleared} backlog entries."
@@ -762,29 +791,58 @@ class IVQueueManager:
                     old_pct = self._current_scout_percent
                     self._current_scout_percent = max(0.001, round(self._current_scout_percent - step_delta, 4))
                     self._last_concurrency_adjustment_time = now
-                    from LazyIVQueue.queue.throttling import log_throttling_event
-                    log_throttling_event("STAGE_1_THROTTLED", "THROTTLED", self)
                     logger.opt(colors=True).warning(
                         f"<yellow>[Self-Tuning]</yellow> STAGE 1 BACKLOG RELIEF: Pending backlog building up ({backlog_elapsed:.1f}s >= {AppConfig.throttle_backlog_seconds}s). "
                         f"Tightening scout baseline ({old_pct:.4f}% -> {self._current_scout_percent:.4f}%). All {self._current_concurrency} scouts active."
                     )
                     # Aggressively purge all non-ivlist entries
-                    self._aggressive_purge_non_ivlist()
+                    purged = self._aggressive_purge_non_ivlist()
                     # Pause rarity recalculations
                     self._pause_rarity_during_throttle = True
+                    # Logged after the purge so the entry carries how much was actually shed
+                    log_event(
+                        "STAGE_1_THROTTLED", self,
+                        awaiting=current_awaiting_iv,
+                        from_pct=old_pct,
+                        pending_at_trip=pending_count,
+                        purged_non_ivlist=purged,
+                    )
 
                 # Step down scout percentage further if backlog persists
                 elif (now - self._last_concurrency_adjustment_time) >= AppConfig.tuning_interval_seconds:
+                    step_since = round(now - self._last_concurrency_adjustment_time, 1)
                     old_pct = self._current_scout_percent
                     new_pct = max(0.0005, round(self._current_scout_percent - step_delta, 4))
                     self._current_scout_percent = new_pct
                     self._last_concurrency_adjustment_time = now
 
-                    if self._current_scout_percent <= 0.005:
+                    if self._current_scout_percent <= 0.005 and self._throttled_step < 2:
+                        # Escalate to shedding auto-rarity: the percent alone was not enough
                         self._throttled_step = 2
-                        self._shed_auto_rarity_backlog()
-                        from LazyIVQueue.queue.throttling import log_throttling_event
-                        log_throttling_event("STAGE_2_THROTTLED", "THROTTLED", self)
+                        shed = self._shed_auto_rarity_backlog()
+                        log_event(
+                            "STAGE_2_THROTTLED", self,
+                            awaiting=current_awaiting_iv,
+                            from_pct=old_pct,
+                            shed_auto_rarity=shed,
+                            floor_hit=new_pct <= 0.0005 + 1e-9,
+                        )
+                    elif new_pct < old_pct:
+                        # Every step down is a data point: how many it takes and how fast
+                        # they come is the shape of the backlog. Skipped once the percent
+                        # is pinned at the floor, where "stepping down" is a no-op.
+                        log_event(
+                            "BACKLOG_STEP_DOWN", self,
+                            pending=pending_count, awaiting=current_awaiting_iv,
+                            from_pct=old_pct,
+                            since_last_step_s=step_since,
+                            floor_hit=new_pct <= 0.0005 + 1e-9,
+                        )
+                    else:
+                        # At the floor with the backlog still growing: the tuner has run
+                        # out of room, which is the signal that matters here.
+                        log_sample(self, pending=pending_count, awaiting=current_awaiting_iv,
+                                   note="backlog_at_floor")
 
                     logger.opt(colors=True).warning(
                         f"<yellow>[Self-Tuning]</yellow> STAGE 1 BACKLOG PERSISTING: Tightening scout baseline ({old_pct:.4f}% -> {new_pct:.4f}%). "
@@ -794,8 +852,11 @@ class IVQueueManager:
             elif backlog_elapsed >= (AppConfig.throttle_backlog_seconds * 0.5):
                 if self._tuning_status == "NORMAL":
                     self._tuning_status = "BACKLOG_WARNING"
-                    from LazyIVQueue.queue.throttling import log_throttling_event
-                    log_throttling_event("BACKLOG_WARNING", "BACKLOG_WARNING", self)
+                    log_event(
+                        "BACKLOG_WARNING", self,
+                        pending=pending_count, awaiting=current_awaiting_iv,
+                        throttle_at_s=AppConfig.throttle_backlog_seconds,
+                    )
 
         else:
             # Pending count is 0: clear backlog timer. Tuning is now driven by sustained
@@ -803,6 +864,7 @@ class IVQueueManager:
             #   utilization >= too_many_workers_percent -> step DOWN (workers saturated, backlog imminent)
             #   utilization <= too_few_workers_percent  -> step UP (workers starved, capacity idle)
             #   in between                              -> hold steady (equilibrium found)
+            backlog_started = self._pending_backlog_start_time
             self._pending_backlog_start_time = None
 
             # The pending queue is clear, so backlog-driven load shedding no longer applies.
@@ -812,9 +874,12 @@ class IVQueueManager:
             self._pause_rarity_during_throttle = False
 
             if self._tuning_status == "BACKLOG_WARNING":
+                backlog_total = round(now - backlog_started, 1) if backlog_started else 0.0
                 self._tuning_status = self._status_for_percent(self._current_scout_percent, baseline_pct)
-                from LazyIVQueue.queue.throttling import log_throttling_event
-                log_throttling_event("BACKLOG_CLEARED", self._tuning_status, self)
+                # Cleared without ever throttling: the warning threshold may be tighter
+                # than it needs to be if this keeps happening.
+                log_event("BACKLOG_CLEARED", self, pending=0, awaiting=current_awaiting_iv,
+                          backlog_total_s=backlog_total)
 
             interval = AppConfig.tuning_interval_seconds
             step_ready = (now - self._last_concurrency_adjustment_time) >= interval
@@ -829,11 +894,25 @@ class IVQueueManager:
                     self._current_scout_percent = new_pct
                     self._last_concurrency_adjustment_time = now
                     self._tuning_status = self._status_for_percent(new_pct, baseline_pct)
+                    # The pre-emptive step: it fires with an empty pending queue, so it
+                    # leaves no other trace of why the percent drifted down.
+                    log_event(
+                        "HIGH_UTILIZATION", self,
+                        pending=0, awaiting=current_awaiting_iv,
+                        from_pct=old_pct,
+                        threshold=AppConfig.too_many_workers_percent,
+                        floor_hit=new_pct <= 0.0005 + 1e-9,
+                    )
                     logger.opt(colors=True).warning(
                         f"<yellow>[Self-Tuning]</yellow> HIGH WORKER LOAD: {utilization_pct:.0f}% of scouts awaiting IV "
                         f"for {interval}s (>= {AppConfig.too_many_workers_percent:.0f}%). Tightening scout baseline "
                         f"({old_pct:.4f}% -> {new_pct:.4f}%)."
                     )
+                elif new_pct == old_pct:
+                    # Sustained saturation that the tuner can no longer answer: it is
+                    # already at the floor. Worth one line, not one per pass.
+                    log_sample(self, pending=0, awaiting=current_awaiting_iv,
+                               note="high_util_at_floor")
 
             elif low_sustained and step_ready and not rarity_calibrating:
                 # Too few workers busy: expand the threshold to feed idle capacity
@@ -847,6 +926,7 @@ class IVQueueManager:
                     else:
                         new_pct = min(max_scout_pct, round(self._current_scout_percent + step_delta, 4))
                     if new_pct > old_pct:
+                        normalized = old_pct <= 0.001 + 1e-9 and old_pct < baseline_pct - 1e-9
                         self._current_scout_percent = new_pct
                         self._last_concurrency_adjustment_time = now
                         # Still below baseline = still climbing back (RECOVERING);
@@ -855,8 +935,15 @@ class IVQueueManager:
                             self._tuning_status = self._status_for_percent(new_pct, baseline_pct)
                         else:
                             self._tuning_status = "RECOVERING"
-                        from LazyIVQueue.queue.throttling import log_throttling_event
-                        log_throttling_event("WORKERS_IDLE", self._tuning_status, self)
+                        log_event(
+                            "WORKERS_IDLE", self,
+                            pending=0, awaiting=current_awaiting_iv,
+                            from_pct=old_pct,
+                            threshold=AppConfig.too_few_workers_percent,
+                            # Jumped off the floor rather than adding one step
+                            normalized_from_floor=normalized,
+                            at_max=new_pct >= max_scout_pct - 1e-9,
+                        )
                         logger.opt(colors=True).info(
                             f"<green>[Self-Tuning]</green> WORKERS IDLE: {utilization_pct:.0f}% of scouts awaiting IV "
                             f"for {interval}s (<= {AppConfig.too_few_workers_percent:.0f}%). Expanding scout baseline "
@@ -871,16 +958,21 @@ class IVQueueManager:
                 # Utilization is inside the dead band while below baseline: this is a stable
                 # equilibrium, not a recovery in progress, so report it as THROTTLED.
                 self._tuning_status = self._status_for_percent(self._current_scout_percent, baseline_pct)
-                from LazyIVQueue.queue.throttling import log_throttling_event
-                log_throttling_event("EQUILIBRIUM", self._tuning_status, self)
+                # Where the tuner settled below baseline is the single most useful
+                # number for choosing a new iv_baseline_percent.
+                log_event("EQUILIBRIUM", self, pending=0, awaiting=current_awaiting_iv,
+                          settled_below_baseline=round(baseline_pct - self._current_scout_percent, 4))
+
+        # Fills in what happens between transitions. Rate limited and skipped while
+        # nothing moves, so this costs one line every few minutes at steady state.
+        log_sample(self, pending=pending_count, awaiting=current_awaiting_iv)
 
     async def pause_queue_manual(self) -> Dict[str, Any]:
         """Manually pause scout dispatching."""
         async with self._queue_lock:
             self._manual_pause = True
             self._tuning_status = "MANUALLY_PAUSED"
-            from LazyIVQueue.queue.throttling import log_throttling_event
-            log_throttling_event("MANUAL_PAUSE", "MANUALLY_PAUSED", self)
+            log_event("MANUAL_PAUSE", self, source="api")
             logger.info("Self-Tuning: Queue dispatching MANUALLY PAUSED.")
             return {"status": "success", "message": "Queue dispatching paused manually.", "tuning_status": self._tuning_status}
 
@@ -889,8 +981,7 @@ class IVQueueManager:
         async with self._queue_lock:
             self._manual_pause = False
             self._reset_tuning_to_baseline()
-            from LazyIVQueue.queue.throttling import log_throttling_event
-            log_throttling_event("MANUAL_RESUME", "NORMAL", self)
+            log_event("MANUAL_RESUME", self, source="api")
             logger.info(
                 f"Self-Tuning: Queue dispatching MANUALLY RESUMED at baseline ({self._current_scout_percent:.4f}%)."
             )
@@ -902,8 +993,7 @@ class IVQueueManager:
             self._manual_pause = False
             self._recent_scout_outcomes.clear()
             self._reset_tuning_to_baseline()
-            from LazyIVQueue.queue.throttling import log_throttling_event
-            log_throttling_event("STATE_RESET", "NORMAL", self)
+            log_event("STATE_RESET", self, source="api")
             logger.info(
                 f"Self-Tuning: State reset. Scout threshold returned to baseline ({self._current_scout_percent:.4f}%)."
             )
@@ -923,8 +1013,9 @@ class IVQueueManager:
 
             if self._current_concurrency != AppConfig.concurrency_scout:
                 await self.update_concurrency(AppConfig.concurrency_scout)
-            from LazyIVQueue.queue.throttling import log_throttling_event
-            log_throttling_event("CONFIG_SYNC", "NORMAL", self)
+            # Carries the new config so later records can be read against the
+            # settings actually in force, not the ones the session started with.
+            log_event("CONFIG_SYNC", self, **config_snapshot())
             logger.info(
                 f"Self-Tuning config synchronized: baseline_scout_pct={baseline_pct:.3f}%, "
                 f"enabled={AppConfig.self_tuning_enabled}, "
@@ -1365,8 +1456,8 @@ class IVQueueManager:
             self._manual_pause = False
             self._recent_scout_outcomes.clear()
             self._reset_tuning_to_baseline()
-            from LazyIVQueue.queue.throttling import log_throttling_event
-            log_throttling_event("QUEUE_RESET", "NORMAL", self)
+            log_event("QUEUE_RESET", self, pending=0, awaiting=0,
+                      cleared_entries=queue_count, source="api")
 
             # Reset stats counters
             self._queued_by_type = {t: 0 for t in self._seen_types}

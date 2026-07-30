@@ -183,11 +183,12 @@ def setup_signal_handlers(app: LazyIVQueueApp, loop: asyncio.AbstractEventLoop) 
 
 async def main() -> None:
     """Main entry point."""
-    # Initialize logging
-    setup_logging(
-        AppConfig.log_level,
-        {"to_file": AppConfig.log_file, "show_function": True},
-    )
+    # Initialize logging. log_file is `false` or a path string from config.json;
+    # forward the path itself, not just whether it's set, or it's silently ignored.
+    logging_options = {"to_file": bool(AppConfig.log_file), "show_function": True}
+    if isinstance(AppConfig.log_file, str):
+        logging_options["file_path"] = AppConfig.log_file
+    setup_logging(AppConfig.log_level, logging_options)
 
     # Create and run application
     app = LazyIVQueueApp()
