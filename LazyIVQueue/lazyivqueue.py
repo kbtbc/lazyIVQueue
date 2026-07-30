@@ -21,6 +21,7 @@ from LazyIVQueue.utils.koji_geofences import KojiGeofenceManager
 from LazyIVQueue.queue.iv_queue import IVQueueManager
 from LazyIVQueue.scout.coordinator import ScoutCoordinator
 from LazyIVQueue.scout.dragonite_queue_monitor import DragoniteQueueMonitor
+from LazyIVQueue.scout.dragonite_rate_limit_monitor import DragoniteRateLimitMonitor
 from LazyIVQueue.api.server import LazyIVQueueServer
 
 
@@ -44,6 +45,7 @@ class LazyIVQueueApp:
         self._server: Optional[LazyIVQueueServer] = None
         self._scout_coordinator: Optional[ScoutCoordinator] = None
         self._dragonite_queue_monitor: Optional[DragoniteQueueMonitor] = None
+        self._dragonite_rate_limit_monitor: Optional[DragoniteRateLimitMonitor] = None
         self._shutdown_event: asyncio.Event = asyncio.Event()
         self._cleanup_task: Optional[asyncio.Task] = None
 
@@ -88,6 +90,11 @@ class LazyIVQueueApp:
         logger.info("Starting Dragonite queue monitor...")
         self._dragonite_queue_monitor = await DragoniteQueueMonitor.get_instance()
         await self._dragonite_queue_monitor.start()
+
+        # 4c. Start Dragonite global rate limit monitor (separate from our own circuit breaker)
+        logger.info("Starting Dragonite rate limit monitor...")
+        self._dragonite_rate_limit_monitor = await DragoniteRateLimitMonitor.get_instance()
+        await self._dragonite_rate_limit_monitor.start()
 
         # 5. Start cleanup task for expired entries
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
@@ -155,6 +162,9 @@ class LazyIVQueueApp:
                 pass
 
         # Stop in reverse order
+        if self._dragonite_rate_limit_monitor:
+            await self._dragonite_rate_limit_monitor.stop()
+
         if self._dragonite_queue_monitor:
             await self._dragonite_queue_monitor.stop()
 

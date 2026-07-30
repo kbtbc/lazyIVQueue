@@ -1393,6 +1393,20 @@ class IVQueueManager:
             f"<cyan>Session: {total_queued} queued</cyan> / <green>{total_matches} matches</green> / <magenta>{total_early} early</magenta> / <cyan>{total_wild_early} wild_early</cyan> / <red>{total_timeouts} timeouts</red>"
         )
 
+        # Redundant with throttling.log, but surfaced in the main log too so it's
+        # visible without tailing a second file.
+        stats = self.get_self_tuning_stats(pending, awaiting_iv)
+        dragonite_str = f"{stats['dragonite_queue_value']}"
+        if stats["dragonite_queue_stale"]:
+            dragonite_str += " (stale)"
+        logger.opt(colors=True).info(
+            f"<magenta>[Self-Tuning]</magenta> step=<yellow>{stats['throttled_step']}</yellow> | "
+            f"dragonite_queue=<cyan>{dragonite_str}</cyan>/{stats['dragonite_queue_threshold_config']} | "
+            f"backlog=<cyan>{stats['pending_backlog_elapsed_sec']}s</cyan>/{stats['throttle_backlog_seconds_config']}s | "
+            f"pause_elapsed=<cyan>{stats['pause_elapsed_sec']}s</cyan> remaining={stats['pause_remaining_sec']}s reason={stats['pause_reason']} | "
+            f"utilization=<cyan>{stats['worker_utilization_pct']}%</cyan> error_rate={stats['recent_error_rate_pct']}%"
+        )
+
         if queue_size > 0:
             preview = self.get_next_entries_preview(10)
             if preview:
