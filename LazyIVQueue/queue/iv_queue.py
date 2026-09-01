@@ -18,6 +18,12 @@ import LazyIVQueue.config as AppConfig
 # the circuit breaker, nor look like "queue is backed up" and trip it.
 _DRAGONITE_STALE_AFTER_SECONDS = 15.0
 
+# How long a finished encounter stays in the dedupe map. Long enough to swallow the
+# repeat webhooks Golbat sends for the same encounter, short enough that the map stays
+# a working set rather than a record of the whole session - see
+# cleanup_completed_encounters(), which is what actually enforces this.
+_COMPLETED_ENCOUNTER_TTL_SECONDS = 900.0
+
 
 @dataclass(order=True)
 class QueueEntry:
@@ -216,7 +222,7 @@ class IVQueueManager:
         ts = self._completed_encounters.get(norm_eid)
         if ts is None:
             return False
-        if time.time() - ts > 900:  # 15 minutes TTL
+        if time.time() - ts > _COMPLETED_ENCOUNTER_TTL_SECONDS:
             del self._completed_encounters[norm_eid]
             return False
         return True
@@ -1601,3 +1607,31 @@ class IVQueueManager:
                 logger.debug(f"Heap cleanup: pruned {removed} stale entries (heap: {before} → {len(clean)})")
                 return removed
         return 0
+
+    async def cleanup_completed_encounters(self) -> int:
+        """
+        Drop dedupe entries whose TTL has passed.
+
+        is_encounter_completed() expires an entry only when that same encounter is
+        looked up again, and encounter IDs are single-use - so without this sweep
+        nothing ever deletes them and the map grows for the life of the process.
+
+        Returns:
+            Number of dedupe entries removed.
+        """
+        cutoff = time.time() - _COMPLETED_ENCOUNTER_TTL_SECONDS
+
+        async with self._queue_lock:
+            before = len(self._completed_encounters)
+            self._completed_encounters = {
+                eid: ts for eid, ts in self._completed_encounters.items() if ts > cutoff
+            }
+            removed = before - len(self._completed_encounters)
+
+        if removed > 0:
+            logger.debug(
+                f"Dedupe cleanup: expired {removed} completed encounters "
+                f"({before} → {len(self._completed_encounters)})"
+            )
+
+        return removed

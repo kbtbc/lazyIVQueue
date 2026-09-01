@@ -133,6 +133,8 @@ class LazyIVQueueApp:
                     await self._queue_manager.cleanup_timed_out_scouts()
                     # Prune stale heap entries (lazy deletion cleanup)
                     await self._queue_manager.cleanup_stale_heap_entries()
+                    # Expire the completed-encounter dedupe map (nothing else prunes it)
+                    await self._queue_manager.cleanup_completed_encounters()
                     # Log status output continuously
                     self._queue_manager.log_queue_status()
             except asyncio.CancelledError:
