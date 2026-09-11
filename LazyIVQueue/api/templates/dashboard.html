@@ -3,331 +3,307 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LazyIVQueue Dashboard</title>
+    <title>LazyIVQueue</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style type="text/tailwindcss">
-        .card { @apply bg-white p-6 rounded-2xl shadow-sm border border-gray-100; }
-        .metric-value { @apply text-3xl font-bold text-gray-900 mt-2; }
-        .metric-label { @apply text-sm font-medium text-gray-500 uppercase tracking-wider; }
+        .card { @apply bg-white p-5 rounded-2xl shadow-sm border border-gray-100; }
+        .metric-value { @apply text-3xl font-bold text-gray-900 mt-1; }
+        .metric-label { @apply text-xs font-semibold text-gray-500 uppercase tracking-wider; }
         .badge { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium; }
         .pill { @apply inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap; }
         .nice-scroll { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
         .nice-scroll::-webkit-scrollbar { width: 6px; }
         .nice-scroll::-webkit-scrollbar-track { background: transparent; }
         .nice-scroll::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded-full; }
-        .nice-scroll::-webkit-scrollbar-thumb:hover { @apply bg-slate-400; }
+        .field-hint { @apply text-[11px] text-gray-400 mt-1 leading-snug; }
+        .field-label { @apply block text-xs font-semibold text-gray-700 mb-1; }
+        .field-input { @apply w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500; }
+        .group-title { @apply text-xs font-bold text-gray-800 tracking-wide uppercase; }
+        .group-sub { @apply text-[11px] text-gray-400 mt-0.5; }
     </style>
 </head>
-<body class="bg-gradient-to-br from-gray-50 via-slate-50 to-blue-50/40 min-h-screen font-sans text-gray-900 pb-12">
-    <nav class="bg-white/90 backdrop-blur border-b border-gray-200 sticky top-0 z-10">
+<body class="bg-slate-100 min-h-screen font-sans text-gray-900 pb-16">
+    <!-- Top bar -->
+    <nav class="bg-white/95 backdrop-blur border-b border-gray-200 sticky top-0 z-20">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between h-16 items-center">
-                <div class="flex items-center">
-                    <h1 class="text-xl font-bold text-gray-900 flex items-center gap-2.5">
-                        <span class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-sm">
-                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+            <div class="flex justify-between h-14 items-center gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                    <h1 class="text-lg font-bold text-gray-900 flex items-center gap-2 truncate">
+                        <span class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-sm shrink-0">
+                            <svg class="w-4.5 h-4.5 text-white w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                         </span>
                         LazyIVQueue
                     </h1>
+                    <span id="connection-status" class="badge bg-green-100 text-green-800 shrink-0">Connected</span>
                 </div>
-                <div class="flex items-center gap-4">
-                    <span id="connection-status" class="badge bg-green-100 text-green-800">Connected</span>
 
-                    <button onclick="openConfigEditor()" class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
-                        <svg class="mr-2 -ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                        Edit Config
+                <div class="flex items-center gap-2">
+                    <button id="btn-pause-queue" onclick="toggleQueuePause()" class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5">
+                        <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Pause sending scouts
                     </button>
 
-                    <button onclick="triggerReload()" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
-                        <svg class="mr-2 -ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                        Reload Config
-                    </button>
-					<button onclick="triggerReset()" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors">
-                        <svg class="mr-2 -ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                        Reset Queue
-                    </button>
+                    <div class="relative">
+                        <button id="more-menu-btn" onclick="toggleMoreMenu()" class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50">
+                            More
+                        </button>
+                        <div id="more-menu" class="hidden absolute right-0 mt-2 w-56 bg-white rounded-xl border border-gray-200 shadow-lg py-1 z-30">
+                            <button onclick="toggleTuningConfigModal(); toggleMoreMenu();" class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Self-Tuning settings…</button>
+                            <button onclick="triggerReload(); toggleMoreMenu();" class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Reload config from disk</button>
+                            <button onclick="openConfigEditor(); toggleMoreMenu();" class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Edit raw config.json…</button>
+                            <div class="border-t border-gray-100 my-1"></div>
+                            <button onclick="triggerReset(); toggleMoreMenu();" class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50">Clear queue & reset stats…</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </nav>
 
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <!-- Top Metrics -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div class="card">
-                <h3 class="metric-label">Queue Size</h3>
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        <!-- KPI strip -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="card py-4">
+                <div class="metric-label">Queue</div>
                 <div class="flex items-baseline gap-2">
                     <p class="metric-value" id="queue-size">--</p>
-                    <p class="text-sm text-gray-500">total entries</p>
+                    <p class="text-xs text-gray-400">total</p>
                 </div>
-                <div class="mt-4 flex gap-4 text-sm">
-                    <div class="flex flex-col"><span class="text-gray-500">Pending</span><span class="font-semibold text-yellow-600" id="queue-pending">--</span></div>
-                    <div class="flex flex-col"><span class="text-gray-500">Awaiting IV</span><span class="font-semibold text-blue-600" id="queue-awaiting">--</span></div>
-                    <div class="flex flex-col"><span class="text-gray-500">Held</span><span class="font-semibold text-purple-600" id="queue-held">--</span></div>
+                <div class="mt-3 flex gap-3 text-xs">
+                    <div><span class="text-gray-500">Pending</span><div class="font-semibold text-amber-600" id="queue-pending">--</div></div>
+                    <div><span class="text-gray-500">Awaiting IV</span><div class="font-semibold text-blue-600" id="queue-awaiting">--</div></div>
+                    <div><span class="text-gray-500">Held</span><div class="font-semibold text-purple-600" id="queue-held">--</div></div>
                 </div>
             </div>
 
-            <div class="card">
-                <h3 class="metric-label">Scouts Active</h3>
+            <div class="card py-4">
+                <div class="metric-label">Scout slots</div>
                 <div class="flex items-baseline gap-2">
                     <p class="metric-value" id="scouts-active">--</p>
-                    <p class="text-sm text-gray-500">/ <span id="scouts-max">--</span> max</p>
+                    <p class="text-xs text-gray-400">/ <span id="scouts-max">--</span></p>
                 </div>
-                <div class="w-full bg-gray-200 rounded-full h-2 mt-4">
-                    <div class="bg-blue-600 h-2 rounded-full" id="scouts-progress" style="width: 0%"></div>
-                </div>
-            </div>
-
-            <div class="card">
-                <h3 class="metric-label">IVs Per Hour</h3>
-                <p class="metric-value text-green-600" id="iv-per-hour">--</p>
-                <div class="mt-4 flex justify-between text-sm">
-                    <span class="text-gray-500">Normal: <span class="font-medium text-gray-900" id="iv-normal">--</span></span>
-                    <span class="text-gray-500">Cell: <span class="font-medium text-gray-900" id="iv-cell">--</span></span>
+                <div class="w-full bg-gray-200 rounded-full h-1.5 mt-3">
+                    <div class="bg-blue-600 h-1.5 rounded-full transition-all" id="scouts-progress" style="width: 0%"></div>
                 </div>
             </div>
 
-            <div class="card flex flex-col">
-                <h3 class="metric-label">Auto Rarity Status</h3>
-                <p class="metric-value" id="rarity-status">--</p>
-                <div class="mt-1 text-xs text-gray-500 hidden" id="rarity-last-update-container">
-                    Last update: <span id="rarity-last-update" class="font-medium text-gray-700">--</span>
+            <div class="card py-4">
+                <div class="metric-label">IVs / hour</div>
+                <p class="metric-value text-emerald-600" id="iv-per-hour">--</p>
+                <div class="mt-3 flex justify-between text-xs text-gray-500">
+                    <span>Normal <span class="font-medium text-gray-800" id="iv-normal">--</span></span>
+                    <span>Cell <span class="font-medium text-gray-800" id="iv-cell">--</span></span>
                 </div>
-                <div class="mt-auto pt-4 flex flex-col text-sm border-b border-gray-100 pb-3 mb-2">
-                    <div class="flex justify-between mb-1">
-                        <span class="text-gray-500">Active Spawns:</span><span class="font-medium text-gray-900" id="active-spawns">--</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-gray-500">Areas:</span><span class="font-medium text-gray-900" id="tracked-areas">--</span>
-                    </div>
+            </div>
+
+            <div class="card py-4">
+                <div class="metric-label">Auto-rarity</div>
+                <p class="metric-value text-xl" id="rarity-status">--</p>
+                <div class="mt-1 text-[11px] text-gray-500 hidden" id="rarity-last-update-container">
+                    Updated <span id="rarity-last-update" class="font-medium text-gray-700">--</span>
                 </div>
-                
+                <div class="mt-3 flex justify-between text-xs text-gray-500">
+                    <span>Spawns <span class="font-medium text-gray-800" id="active-spawns">--</span></span>
+                    <span>Areas <span class="font-medium text-gray-800" id="tracked-areas">--</span></span>
+                </div>
             </div>
         </div>
 
-        <!-- Self-Tuning Queue Circuit Breaker & Monitor -->
-        <div class="card mb-8 border border-gray-200 bg-white shadow-sm rounded-xl p-6">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4 mb-4">
-                <div>
-                    <div class="flex items-center gap-3">
-                        <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
-                            <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
-                            </svg>
-                            Self-Tuning Queue Monitor
-                        </h3>
+        <!-- Self-Tuning hero -->
+        <section class="card border-indigo-100 ring-1 ring-indigo-50">
+            <div class="flex flex-col lg:flex-row lg:items-start justify-between gap-4 pb-4 mb-4 border-b border-gray-100">
+                <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <h2 class="text-base font-bold text-gray-900">Self-Tuning</h2>
                         <span id="tuning-status-badge" class="px-2.5 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 border border-green-200 flex items-center gap-1.5">
                             <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
                             NORMAL
                         </span>
                     </div>
-                    <p class="text-xs text-gray-500 mt-1" id="tuning-status-desc">
-                        Circuit breaker active. Tracks Dragonite's own scout queue depth and drains awaiting IVs during network spikes.
+                    <p class="text-xs text-gray-500 mt-1.5 max-w-2xl" id="tuning-status-desc">
+                        Watches Dragonite’s scout queue and slows or pauses us when it backs up.
                     </p>
                 </div>
-                
-                <div class="flex items-center gap-2">
-                    <button id="btn-pause-queue" onclick="toggleQueuePause()" class="px-3.5 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5 shadow-sm">
-                        <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        Pause Dispatching
+                <div class="flex items-center gap-2 shrink-0">
+                    <button onclick="toggleTuningConfigModal()" class="px-3 py-2 text-xs font-semibold rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors">
+                        Tuning settings
                     </button>
-                    <button onclick="toggleTuningConfigModal()" class="px-3.5 py-2 text-xs font-semibold rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors flex items-center gap-1.5 shadow-sm">
-                        <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                        Tuning Settings
-                    </button>
-                    <button onclick="resetTuningState()" title="Reset Circuit Breaker & Error History" class="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors">
+                    <button onclick="resetTuningState()" title="Reset circuit-breaker state & error history" class="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                     </button>
                 </div>
             </div>
 
-            <!-- Self-Tuning Telemetry Grid -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div class="bg-gray-50 rounded-lg p-3.5 border border-gray-100">
-                    <div class="flex items-center justify-between">
-                        <span class="text-xs text-gray-500 font-medium block">Dragonite Scout Queue</span>
-                        <span id="tuning-dragonite-stale" class="hidden px-1.5 py-0.5 text-[10px] font-semibold rounded bg-yellow-100 text-yellow-800 border border-yellow-200">STALE</span>
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                <div class="bg-slate-50 rounded-xl p-3.5 border border-slate-100">
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Dragonite scout queue</span>
+                        <span id="tuning-dragonite-stale" class="hidden px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800 border border-amber-200">STALE</span>
                     </div>
-                    <div class="flex items-baseline justify-between mt-1">
-                        <span class="text-lg font-bold text-gray-900" id="tuning-dragonite-value">--</span>
+                    <div class="flex items-baseline gap-1 mt-1">
+                        <span class="text-2xl font-bold text-gray-900" id="tuning-dragonite-value">--</span>
                         <span class="text-xs font-semibold text-gray-500" id="tuning-dragonite-thresh">/ 5</span>
                     </div>
                     <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2 overflow-hidden">
                         <div id="tuning-backlog-bar" class="bg-indigo-600 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
                     </div>
-                    <div class="text-xs text-gray-500 mt-1">
-                        Above threshold: <span id="tuning-backlog-elapsed" class="font-medium text-gray-700">0.0s</span> / <span id="tuning-backlog-thresh-s">45s</span>
+                    <div class="text-[11px] text-gray-500 mt-1.5">
+                        Over threshold for <span id="tuning-backlog-elapsed" class="font-medium text-gray-700">0.0s</span> / <span id="tuning-backlog-thresh-s">45s</span>
                     </div>
                 </div>
 
-                <div class="bg-gray-50 rounded-lg p-3.5 border border-gray-100">
-                    <span class="text-xs text-gray-500 font-medium block">Awaiting IV Drain</span>
-                    <div class="flex items-baseline justify-between mt-1">
-                        <span class="text-lg font-bold text-gray-900" id="tuning-awaiting-curr">--</span>
-                        <span class="text-xs font-semibold text-indigo-600" id="tuning-awaiting-target">Target: --</span>
+                <div class="bg-slate-50 rounded-xl p-3.5 border border-slate-100">
+                    <span class="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Awaiting IV</span>
+                    <div class="flex items-baseline justify-between mt-1 gap-2">
+                        <span class="text-2xl font-bold text-gray-900" id="tuning-awaiting-curr">--</span>
+                        <span class="text-xs font-semibold text-indigo-600 text-right" id="tuning-awaiting-target">Target: --</span>
                     </div>
-                    <div class="text-xs text-gray-500 mt-1">
-                        Baseline: <span id="tuning-awaiting-base" class="font-medium text-gray-700">0</span> (<span id="tuning-drain-pct">50</span>% baseline)
-                    </div>
-                </div>
-
-                <div class="bg-gray-50 rounded-lg p-3.5 border border-gray-100">
-                    <span class="text-xs text-gray-500 font-medium block">Active Workers (Concurrency)</span>
-                    <div class="flex items-baseline justify-between mt-1">
-                        <span class="text-lg font-bold text-indigo-700" id="tuning-concurrency-curr">5</span>
-                        <span class="text-xs font-semibold text-gray-500" id="tuning-concurrency-range">Scout Workers</span>
-                    </div>
-                    <div class="text-xs text-gray-500 mt-1">
-                        Tuning: <span id="tuning-dynamic-status" class="font-medium text-blue-600">Balanced</span>
+                    <div class="text-[11px] text-gray-500 mt-1.5">
+                        Baseline <span id="tuning-awaiting-base" class="font-medium text-gray-700">0</span>
+                        · resume at <span id="tuning-drain-pct">50</span>% of baseline
                     </div>
                 </div>
 
-                <div class="bg-gray-50 rounded-lg p-3.5 border border-gray-100">
-                    <span class="text-xs text-gray-500 font-medium block">Scout Error Rate</span>
-                    <div class="flex items-baseline justify-between mt-1">
-                        <span class="text-lg font-bold text-gray-900" id="tuning-error-rate">0.0%</span>
+                <div class="bg-slate-50 rounded-xl p-3.5 border border-slate-100">
+                    <span class="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Our scout slots</span>
+                    <div class="flex items-baseline justify-between mt-1 gap-2">
+                        <span class="text-2xl font-bold text-indigo-700" id="tuning-concurrency-curr">--</span>
+                        <span class="text-xs font-semibold text-gray-500 text-right" id="tuning-concurrency-range">—</span>
+                    </div>
+                    <div class="text-[11px] text-gray-500 mt-1.5">
+                        Pressure: <span id="tuning-dynamic-status" class="font-medium text-blue-600">Balanced</span>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 rounded-xl p-3.5 border border-slate-100">
+                    <span class="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Scout errors</span>
+                    <div class="flex items-baseline justify-between mt-1 gap-2">
+                        <span class="text-2xl font-bold text-gray-900" id="tuning-error-rate">0.0%</span>
                         <span class="text-xs font-semibold text-gray-500" id="tuning-pauses-count">Pauses: 0</span>
                     </div>
-                    <div class="text-xs text-gray-500 mt-1">
-                        Last 30 scout requests
-                    </div>
+                    <div class="text-[11px] text-gray-500 mt-1.5">Last 30 scout requests</div>
                 </div>
             </div>
+        </section>
+
+        <!-- Tabs -->
+        <div class="flex flex-wrap gap-1 p-1 bg-slate-200/70 rounded-xl w-full sm:w-auto">
+            <button type="button" data-tab-btn="queue" onclick="switchTab('queue')" class="px-4 py-2 text-sm font-semibold rounded-lg bg-white text-gray-900 shadow-sm">Queue</button>
+            <button type="button" data-tab-btn="performance" onclick="switchTab('performance')" class="px-4 py-2 text-sm font-semibold rounded-lg text-gray-500 hover:text-gray-800">Performance</button>
+            <button type="button" data-tab-btn="rarity" onclick="switchTab('rarity')" class="px-4 py-2 text-sm font-semibold rounded-lg text-gray-500 hover:text-gray-800">Rarity</button>
+            <button type="button" data-tab-btn="debug" onclick="switchTab('debug')" class="px-4 py-2 text-sm font-semibold rounded-lg text-gray-500 hover:text-gray-800">Debug</button>
         </div>
 
-        <!-- Charts Row -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <!-- Queue tab -->
+        <section data-tab-panel="queue" class="space-y-4">
             <div class="card">
-                <h3 class="text-lg font-bold text-gray-900 mb-4">Session Statistics</h3>
-                <div class="relative h-64">
-                    <canvas id="sessionChart"></canvas>
+                <div class="flex items-center justify-between mb-4 gap-2">
+                    <h3 class="text-sm font-bold text-gray-900">What’s waiting</h3>
+                    <span class="text-xs text-gray-400"><span id="queue-preview-count">0</span> in queue</span>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div class="rounded-xl border border-gray-100 bg-slate-50/80 p-4">
+                        <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-2">
+                            <h4 class="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                                Priority lists
+                            </h4>
+                            <div class="flex items-center gap-1.5">
+                                <span class="pill bg-blue-100 text-blue-700 border border-blue-200">IV</span>
+                                <span class="pill bg-emerald-100 text-emerald-700 border border-emerald-200">Cell</span>
+                                <span class="text-xs text-gray-400 font-medium" id="queue-vip-count">0</span>
+                            </div>
+                        </div>
+                        <div id="queue-vip-list" class="flex flex-col gap-0.5 overflow-y-auto nice-scroll max-h-80">
+                            <p class="text-sm text-gray-500 py-1 italic">Loading…</p>
+                        </div>
+                        <div id="queue-vip-list-btnwrap" class="pt-2"></div>
+                    </div>
+                    <div class="rounded-xl border border-gray-100 bg-slate-50/80 p-4">
+                        <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-2">
+                            <h4 class="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-orange-500"></span>
+                                Auto-rarity picks
+                            </h4>
+                            <span class="text-xs text-gray-400 font-medium" id="queue-rarity-count">0</span>
+                        </div>
+                        <div id="queue-rarity-list" class="flex flex-col gap-0.5 overflow-y-auto nice-scroll max-h-80">
+                            <p class="text-sm text-gray-500 py-1 italic">Loading…</p>
+                        </div>
+                        <div id="queue-rarity-list-btnwrap" class="pt-2"></div>
+                    </div>
                 </div>
             </div>
+        </section>
+
+        <!-- Performance tab -->
+        <section data-tab-panel="performance" class="hidden space-y-4">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div class="card">
+                    <h3 class="text-sm font-bold text-gray-900 mb-3">This session</h3>
+                    <div class="relative h-64"><canvas id="sessionChart"></canvas></div>
+                </div>
+                <div class="card">
+                    <h3 class="text-sm font-bold text-gray-900 mb-3">By source</h3>
+                    <div class="relative h-64 flex justify-center"><canvas id="sourceChart"></canvas></div>
+                </div>
+            </div>
+
             <div class="card">
-                <h3 class="text-lg font-bold text-gray-900 mb-4">Source Breakdown</h3>
-                <div class="relative h-64 flex justify-center">
-                    <canvas id="sourceChart"></canvas>
-                </div>
-            </div>
-        </div>
-
-        <!-- Active Queue Preview -->
-        <div class="card mb-8">
-            <h3 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <svg class="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                Queue Preview
-                <span class="text-sm font-medium text-gray-400">(<span id="queue-preview-count">0</span> queued)</span>
-            </h3>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <!-- Priority list entries (ivlist + celllist) -->
-                <div class="flex flex-col rounded-xl border border-gray-100 bg-gray-50/70 p-4">
-                    <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-2">
-                        <h4 class="font-semibold text-gray-800 flex items-center gap-2">
-                            <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                            Priority Lists
-                        </h4>
-                        <div class="flex items-center gap-2">
-                            <span class="pill bg-blue-100 text-blue-700 border border-blue-200">IV</span>
-                            <span class="pill bg-emerald-100 text-emerald-700 border border-emerald-200">Cell</span>
-                            <span class="text-xs text-gray-400 font-medium ml-1" id="queue-vip-count">0</span>
+                <h3 class="text-sm font-bold text-gray-900 mb-3">Top Pokémon queued this session</h3>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div class="rounded-xl border border-gray-100 bg-slate-50/80 p-4">
+                        <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
+                            <h4 class="text-sm font-semibold text-gray-800">Priority lists</h4>
+                            <span class="pill bg-blue-100 text-blue-700 border border-blue-200" id="vip-activity-total">0 queued</span>
                         </div>
+                        <div class="relative h-[420px]"><canvas id="vipActivityChart"></canvas></div>
                     </div>
-                    <div id="queue-vip-list" class="flex flex-col gap-0.5 overflow-y-auto nice-scroll max-h-80">
-                        <p class="text-sm text-gray-500 py-1 italic">Loading...</p>
-                    </div>
-                    <div id="queue-vip-list-btnwrap" class="pt-2"></div>
-                </div>
-                <!-- Auto rarity entries -->
-                <div class="flex flex-col rounded-xl border border-gray-100 bg-gray-50/70 p-4">
-                    <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-2">
-                        <h4 class="font-semibold text-gray-800 flex items-center gap-2">
-                            <span class="w-2.5 h-2.5 rounded-full bg-orange-500"></span>
-                            Auto Rarity
-                        </h4>
-                        <div class="flex items-center gap-2">
-                            <span class="pill bg-purple-100 text-purple-700 border border-purple-200">Rarity tier</span>
-                            <span class="text-xs text-gray-400 font-medium ml-1" id="queue-rarity-count">0</span>
+                    <div class="rounded-xl border border-gray-100 bg-slate-50/80 p-4">
+                        <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
+                            <h4 class="text-sm font-semibold text-gray-800">Auto-rarity</h4>
+                            <span class="pill bg-orange-100 text-orange-700 border border-orange-200" id="rarity-activity-total">0 queued</span>
                         </div>
+                        <div class="relative h-[420px]"><canvas id="rarityActivityChart"></canvas></div>
                     </div>
-                    <div id="queue-rarity-list" class="flex flex-col gap-0.5 overflow-y-auto nice-scroll max-h-80">
-                        <p class="text-sm text-gray-500 py-1 italic">Loading...</p>
+                    <div class="rounded-xl border border-gray-100 bg-slate-50/80 p-4">
+                        <h4 class="text-sm font-semibold text-gray-800 mb-3 border-b border-gray-200 pb-2">All sources</h4>
+                        <div id="list-aggregate" class="flex flex-col gap-0.5 overflow-y-auto nice-scroll max-h-[420px]">
+                            <p class="text-sm text-gray-500 py-2 italic">Waiting for data…</p>
+                        </div>
+                        <div id="list-aggregate-btnwrap" class="pt-2"></div>
                     </div>
-                    <div id="queue-rarity-list-btnwrap" class="pt-2"></div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- Pokemon Activity split charts -->
-        <div class="card mb-8">
-            <h3 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
-                Pokemon Activity (Top 20)
-                <span class="text-sm font-medium text-gray-400">queued this session</span>
-            </h3>
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <!-- Priority list activity -->
-                <div class="flex flex-col rounded-xl border border-gray-100 bg-gray-50/70 p-4">
-                    <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
-                        <h4 class="font-semibold text-gray-800 flex items-center gap-2">
-                            <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                            Priority Lists
-                        </h4>
-                        <span class="pill bg-blue-100 text-blue-700 border border-blue-200" id="vip-activity-total">0 queued</span>
-                    </div>
-                    <div class="relative h-[480px]">
-                        <canvas id="vipActivityChart"></canvas>
-                    </div>
-                </div>
-                <!-- Auto rarity activity -->
-                <div class="flex flex-col rounded-xl border border-gray-100 bg-gray-50/70 p-4">
-                    <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
-                        <h4 class="font-semibold text-gray-800 flex items-center gap-2">
-                            <span class="w-2.5 h-2.5 rounded-full bg-orange-500"></span>
-                            Auto Rarity
-                        </h4>
-                        <span class="pill bg-orange-100 text-orange-700 border border-orange-200" id="rarity-activity-total">0 queued</span>
-                    </div>
-                    <div class="relative h-[480px]">
-                        <canvas id="rarityActivityChart"></canvas>
-                    </div>
-                </div>
-                <!-- Aggregate rankings list -->
-                <div class="flex flex-col rounded-xl border border-gray-100 bg-gray-50/70 p-4">
-                    <h4 class="font-semibold text-gray-800 mb-3 border-b border-gray-200 pb-2 flex items-center gap-2">
-                        <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
-                        Aggregate Rankings
-                    </h4>
-                    <div id="list-aggregate" class="flex flex-col gap-0.5 overflow-y-auto nice-scroll max-h-[480px]">
-                        <p class="text-sm text-gray-500 py-2 italic">Waiting for data...</p>
-                    </div>
-                    <div id="list-aggregate-btnwrap" class="pt-2"></div>
+        <!-- Rarity tab -->
+        <section data-tab-panel="rarity" class="hidden">
+            <div class="card">
+                <h3 class="text-sm font-bold text-gray-900 mb-4" id="rarity-rankings-title-text">Area rarity rankings</h3>
+                <div id="area-rares-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <p class="text-sm text-gray-500 py-2 italic col-span-full">Waiting for rarity calibration…</p>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- Individual Area Rarity Rankings -->
-        <div class="card mb-8">
-            <h3 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <svg class="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                <span id="rarity-rankings-title-text">Area Rarity Rankings</span>
-            </h3>
-            <div id="area-rares-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <p class="text-sm text-gray-500 py-2 italic col-span-full">Waiting for rarity calibration...</p>
+        <!-- Debug tab -->
+        <section data-tab-panel="debug" class="hidden">
+            <div class="card">
+                <div class="flex items-center justify-between mb-3 gap-2">
+                    <div>
+                        <h3 class="text-sm font-bold text-gray-900">Raw telemetry</h3>
+                        <p class="text-xs text-gray-400 mt-0.5">Live JSON from <code class="text-[11px]">/stats</code></p>
+                    </div>
+                    <button onclick="toggleRawData()" class="text-xs font-semibold text-blue-600 hover:text-blue-800">Show / hide</button>
+                </div>
+                <pre id="stats-content" class="hidden bg-gray-900 text-emerald-400 p-4 rounded-xl overflow-auto h-96 text-xs font-mono"></pre>
             </div>
-        </div>
-
-        <!-- Raw JSON Viewer -->
-        <div class="card">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-bold text-gray-900">Raw Telemetry</h3>
-                <button onclick="toggleRawData()" class="text-sm text-blue-600 hover:text-blue-800">Toggle View</button>
-            </div>
-            <pre id="stats-content" class="hidden bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto h-96 text-xs shadow-inner font-mono"></pre>
-        </div>
+        </section>
     </main>
 
-    <script>
+<script>
         let sessionChart = null;
         let sourceChart = null;
         let vipActivityChart = null;
@@ -731,14 +707,14 @@
                         if (st.status === 'NORMAL') {
                             badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 border border-green-200 flex items-center gap-1.5';
                             badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> NORMAL';
-                            descEl.textContent = `Queue operating normally at baseline ${scoutPct}% scout baseline (${st.current_concurrency} scouts active).`;
-                            btnPause.innerHTML = '<svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Pause Dispatching';
+                            descEl.textContent = `Steady at baseline ${scoutPct}% scout baseline (${st.current_concurrency} scouts active).`;
+                            btnPause.innerHTML = '<svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Pause sending scouts';
                             btnPause.className = 'px-3.5 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5 shadow-sm';
                         } else if (st.status === 'BOOSTED') {
                             badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1.5';
                             badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> BOOSTED';
-                            descEl.textContent = `QUEUE IDLE: Extra capacity available. scout baseline boosted to ${scoutPct}% (baseline: ${basePct}%, max: ${st.max_scout_percent_config !== undefined ? st.max_scout_percent_config : 1.0}%, ${st.current_concurrency} scouts active).`;
-                            btnPause.innerHTML = '<svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Pause Dispatching';
+                            descEl.textContent = `Idle capacity — baseline boosted to ${scoutPct}% (baseline: ${basePct}%, max: ${st.max_scout_percent_config !== undefined ? st.max_scout_percent_config : 1.0}%, ${st.current_concurrency} scouts active).`;
+                            btnPause.innerHTML = '<svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Pause sending scouts';
                             btnPause.className = 'px-3.5 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5 shadow-sm';
                         } else if (st.status === 'BACKLOG_WARNING') {
                             badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200 flex items-center gap-1.5';
@@ -748,7 +724,7 @@
                             badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800 border border-red-300 flex items-center gap-1.5 animate-pulse';
                             badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-600"></span> CIRCUIT BREAKER PAUSED';
                             descEl.textContent = `PAUSED: ${st.pause_reason || 'Pending backlog limit reached.'} (${st.pause_remaining_sec}s pause remaining, awaiting IV drain to <= ${st.target_awaiting_iv}).`;
-                            btnPause.innerHTML = '<svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Resume Dispatching';
+                            btnPause.innerHTML = '<svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Resume sending scouts';
                             btnPause.className = 'px-3.5 py-2 text-xs font-semibold rounded-lg bg-green-50 border border-green-300 text-green-800 hover:bg-green-100 transition-colors flex items-center gap-1.5 shadow-sm';
                         } else if (st.status === 'RECOVERING') {
                             badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-1.5';
@@ -765,7 +741,7 @@
                             badgeEl.className = 'px-2.5 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800 border border-purple-200 flex items-center gap-1.5';
                             badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-purple-600"></span> MANUALLY PAUSED';
                             descEl.textContent = 'Queue dispatching paused manually by operator.';
-                            btnPause.innerHTML = '<svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Resume Dispatching';
+                            btnPause.innerHTML = '<svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Resume sending scouts';
                             btnPause.className = 'px-3.5 py-2 text-xs font-semibold rounded-lg bg-green-50 border border-green-300 text-green-800 hover:bg-green-100 transition-colors flex items-center gap-1.5 shadow-sm';
                         }
 
@@ -1127,7 +1103,35 @@
             el.classList.toggle('hidden');
         }
 
+
+        function switchTab(tabId) {
+            document.querySelectorAll('[data-tab-panel]').forEach(el => {
+                el.classList.toggle('hidden', el.getAttribute('data-tab-panel') !== tabId);
+            });
+            document.querySelectorAll('[data-tab-btn]').forEach(el => {
+                const active = el.getAttribute('data-tab-btn') === tabId;
+                el.classList.toggle('bg-white', active);
+                el.classList.toggle('text-gray-900', active);
+                el.classList.toggle('shadow-sm', active);
+                el.classList.toggle('text-gray-500', !active);
+                el.classList.toggle('hover:text-gray-800', !active);
+            });
+        }
+
+        function toggleMoreMenu() {
+            document.getElementById('more-menu').classList.toggle('hidden');
+        }
+
+        document.addEventListener('click', (e) => {
+            const menu = document.getElementById('more-menu');
+            const btn = document.getElementById('more-menu-btn');
+            if (!menu || menu.classList.contains('hidden')) return;
+            if (btn.contains(e.target) || menu.contains(e.target)) return;
+            menu.classList.add('hidden');
+        });
+
         window.onload = () => {
+            switchTab('queue');
             initCharts();
             fetchStats();
             fetchQueuePreview();
@@ -1138,162 +1142,149 @@
         };
     </script>
 
-    <!-- Self-Tuning Settings Modal -->
+    <!-- Self-Tuning settings modal -->
     <div id="tuning-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="tuning-modal-title" role="dialog" aria-modal="true">
         <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onclick="closeTuningConfigModal()"></div>
-            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-            <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-xl sm:w-full">
+            <div class="fixed inset-0 bg-gray-500/70 transition-opacity" onclick="closeTuningConfigModal()"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+            <div class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-xl sm:w-full">
                 <form onsubmit="saveTuningConfig(event)">
-                    <div class="bg-white px-6 pt-5 pb-4">
+                    <div class="bg-white px-6 pt-5 pb-4 max-h-[75vh] overflow-y-auto nice-scroll">
                         <div class="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
-                            <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2" id="tuning-modal-title">
-                                <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path></svg>
-                                Self-Tuning Circuit Breaker Settings
-                            </h3>
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900" id="tuning-modal-title">Self-Tuning settings</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Day-to-day knobs. Full <code class="text-[11px]">config.json</code> is under More → Edit raw config.</p>
+                            </div>
                             <button type="button" onclick="closeTuningConfigModal()" class="text-gray-400 hover:text-gray-600">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                             </button>
                         </div>
 
-                        <div class="space-y-4 text-sm text-gray-700">
-                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
+                        <div class="space-y-5 text-sm">
+                            <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
                                 <div>
-                                    <label for="cfg-tuning-enabled" class="font-semibold text-gray-900 block">Enable Self-Tuning Circuit Breaker</label>
-                                    <span class="text-xs text-gray-500">Auto-pauses queue on backlog spikes and monitors recovery</span>
+                                    <label for="cfg-tuning-enabled" class="font-semibold text-gray-900 block">Enable Self-Tuning</label>
+                                    <span class="text-xs text-gray-500">Auto throttle / pause when Dragonite’s scout queue backs up</span>
                                 </div>
                                 <input type="checkbox" id="cfg-tuning-enabled" class="w-5 h-5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500">
                             </div>
 
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Stage 1 Backlog Relief (sec)</label>
-                                    <input type="number" id="cfg-tuning-backlog-sec" min="5" max="300" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                    <span class="text-[11px] text-gray-400">Default: 45s</span>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Stage 2 Hard Pause Limit (sec)</label>
-                                    <input type="number" id="cfg-tuning-hard-pause-sec" min="15" max="600" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                    <span class="text-[11px] text-gray-400">Default: 90s</span>
-                                </div>
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Min Pause Duration (sec)</label>
-                                    <input type="number" id="cfg-tuning-pause-dur" min="10" max="600" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                    <span class="text-[11px] text-gray-400">Default: 60s</span>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Awaiting IV Drain Target (%)</label>
-                                    <input type="number" id="cfg-tuning-drain-pct" min="10" max="100" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                    <span class="text-[11px] text-gray-400">Default: 50%</span>
-                                </div>
-                            </div>
-
-                            <hr class="border-gray-100 my-2">
-
                             <div>
-                                <span class="text-xs font-bold text-gray-800 block mb-1">Dragonite Scout Queue (primary backlog signal)</span>
-                                <span class="text-[11px] text-gray-400">Polls Dragonite's own /scout/queue depth directly, instead of our internal pending count</span>
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Queue Threshold</label>
-                                    <input type="number" id="cfg-tuning-dragonite-threshold" min="0" max="1000" step="1" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                    <span class="text-[11px] text-gray-400">Default: 5 — queue depth at/below this counts as "clear"</span>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Clear Streak (sec)</label>
-                                    <input type="number" id="cfg-tuning-dragonite-clear-sec" min="0" max="300" step="1" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                    <span class="text-[11px] text-gray-400">Default: 10s — must stay at/below threshold this long before the backlog timer resets</span>
+                                <div class="group-title">Protection</div>
+                                <p class="group-sub mb-3">How long a backed-up Dragonite queue may last before we slow down or stop.</p>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="field-label">Throttle after backlog for (sec)</label>
+                                        <input type="number" id="cfg-tuning-backlog-sec" min="5" max="300" class="field-input">
+                                        <p class="field-hint">Stage 1 — shed load. Default 45s.</p>
+                                    </div>
+                                    <div>
+                                        <label class="field-label">Full pause after backlog for (sec)</label>
+                                        <input type="number" id="cfg-tuning-hard-pause-sec" min="15" max="600" class="field-input">
+                                        <p class="field-hint">Stage 2 — circuit breaker. Default 90s.</p>
+                                    </div>
+                                    <div>
+                                        <label class="field-label">Minimum pause length (sec)</label>
+                                        <input type="number" id="cfg-tuning-pause-dur" min="10" max="600" class="field-input">
+                                        <p class="field-hint">Stay paused at least this long. Default 60s.</p>
+                                    </div>
+                                    <div>
+                                        <label class="field-label">Resume when awaiting-IV is at % of baseline</label>
+                                        <input type="number" id="cfg-tuning-drain-pct" min="10" max="100" class="field-input">
+                                        <p class="field-hint">Default 50%.</p>
+                                    </div>
                                 </div>
                             </div>
 
                             <div>
-                                <label class="block text-xs font-semibold text-gray-700 mb-1">Poll Interval (sec)</label>
-                                <input type="number" id="cfg-tuning-dragonite-poll-sec" min="0.5" max="60" step="0.5" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                <span class="text-[11px] text-gray-400">Default: 1.5s — how often we ask Dragonite for its queue depth</span>
+                                <div class="group-title">Dragonite signal</div>
+                                <p class="group-sub mb-3">We poll Dragonite’s own scout-queue depth (not our pending count).</p>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="field-label">“Clear” depth</label>
+                                        <input type="number" id="cfg-tuning-dragonite-threshold" min="0" max="1000" step="1" class="field-input">
+                                        <p class="field-hint">At/below this = healthy. Default 5.</p>
+                                    </div>
+                                    <div>
+                                        <label class="field-label">Must stay clear for (sec)</label>
+                                        <input type="number" id="cfg-tuning-dragonite-clear-sec" min="0" max="300" step="1" class="field-input">
+                                        <p class="field-hint">Before backlog timer resets. Default 10s.</p>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <label class="field-label">Poll every (sec)</label>
+                                    <input type="number" id="cfg-tuning-dragonite-poll-sec" min="0.5" max="60" step="0.5" class="field-input">
+                                    <p class="field-hint">Default 1.5s.</p>
+                                </div>
                             </div>
-
-                            <hr class="border-gray-100 my-2">
 
                             <div>
-                                <label class="block text-xs font-semibold text-gray-700 mb-1">Tuning Interval (sec)</label>
-                                <input type="number" id="cfg-tuning-step-sec" min="5" max="300" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                <span class="text-[11px] text-gray-400">Default: 30s — time horizon utilization must hold before the scout baseline steps</span>
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Too Many Workers (%)</label>
-                                    <input type="number" id="cfg-tuning-too-many" min="10" max="100" step="1" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                    <span class="text-[11px] text-gray-400">Default: 50% — throttle down if awaiting-IV workers stay at/above this for the tuning interval</span>
+                                <div class="group-title">Baseline stepping</div>
+                                <p class="group-sub mb-3">When we’re not in a circuit-breaker pause, nudge how aggressively auto-rarity scouts.</p>
+                                <div class="mb-3">
+                                    <label class="field-label">Decide every (sec)</label>
+                                    <input type="number" id="cfg-tuning-step-sec" min="5" max="300" class="field-input">
+                                    <p class="field-hint">Utilization must hold this long before a step. Default 30s.</p>
                                 </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Too Few Workers (%)</label>
-                                    <input type="number" id="cfg-tuning-too-few" min="0" max="90" step="1" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                    <span class="text-[11px] text-gray-400">Default: 5% — throttle up if awaiting-IV workers stay at/below this for the tuning interval</span>
-                                </div>
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Step Delta (Additive/Subtractive)</label>
-                                    <input type="number" id="cfg-tuning-step-factor" min="0.0001" max="1.0" step="0.001" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                    <span class="text-[11px] text-gray-400">Default: 0.005 (e.g., 0.030% baseline + 0.005 = 0.035%)</span>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Max Scout % (Boost Cap)</label>
-                                    <input type="number" id="cfg-tuning-max-scout-pct" min="0.01" max="100.0" step="0.05" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                    <span class="text-[11px] text-gray-400">Default: 1.0 (1.0%)</span>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="field-label">Busy-scout high band (%)</label>
+                                        <input type="number" id="cfg-tuning-too-many" min="10" max="100" step="1" class="field-input">
+                                        <p class="field-hint">Above this → step down. Default 50%.</p>
+                                    </div>
+                                    <div>
+                                        <label class="field-label">Busy-scout low band (%)</label>
+                                        <input type="number" id="cfg-tuning-too-few" min="0" max="90" step="1" class="field-input">
+                                        <p class="field-hint">Below this → step up. Default 5%.</p>
+                                    </div>
+                                    <div>
+                                        <label class="field-label">Scout baseline step size</label>
+                                        <input type="number" id="cfg-tuning-step-factor" min="0.0001" max="1.0" step="0.001" class="field-input">
+                                        <p class="field-hint">Added/subtracted each step. Default 0.005.</p>
+                                    </div>
+                                    <div>
+                                        <label class="field-label">Max auto-rarity scout %</label>
+                                        <input type="number" id="cfg-tuning-max-scout-pct" min="0.01" max="100.0" step="0.05" class="field-input">
+                                        <p class="field-hint">Boost cap. Default 1.0 (= 1%).</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-
-                    <div class="bg-gray-50 px-6 py-3.5 flex justify-end gap-3 border-t border-gray-100">
-                        <button type="button" onclick="closeTuningConfigModal()" class="px-4 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors">
-                            Cancel
-                        </button>
-                        <button type="submit" class="px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-sm">
-                            Save Settings
-                        </button>
+                    <div class="bg-slate-50 px-6 py-3.5 flex justify-end gap-3 border-t border-gray-100">
+                        <button type="button" onclick="closeTuningConfigModal()" class="px-4 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100">Cancel</button>
+                        <button type="submit" class="px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Save settings</button>
                     </div>
                 </form>
             </div>
         </div>
     </div>
 
-    <!-- Config Editor Modal -->
-    <div id="config-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+    <!-- Advanced raw config modal -->
+    <div id="config-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
         <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onclick="closeConfigEditor()"></div>
-            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
-                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                    <div class="sm:flex sm:items-start w-full">
-                        <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
-                            <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">Edit Configuration</h3>
-                            <div class="mt-2 w-full">
-                                <textarea id="config-textarea" class="w-full h-96 p-4 font-mono text-sm border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-gray-50" spellcheck="false"></textarea>
-                            </div>
-                            <div id="config-error" class="mt-2 text-sm text-red-600 hidden"></div>
+            <div class="fixed inset-0 bg-gray-500/70 transition-opacity" onclick="closeConfigEditor()"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+            <div class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-3xl sm:w-full">
+                <div class="bg-white px-6 pt-5 pb-4">
+                    <div class="flex items-start justify-between gap-3 mb-3">
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-900">Edit raw config.json</h3>
+                            <p class="text-xs text-gray-400 mt-0.5">Advanced escape hatch. Prefer <strong>Tuning settings</strong> for Self-Tuning knobs.</p>
                         </div>
+                        <button type="button" onclick="closeConfigEditor()" class="text-gray-400 hover:text-gray-600">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
                     </div>
+                    <textarea id="config-textarea" class="w-full h-96 p-4 font-mono text-sm border border-gray-300 rounded-xl bg-slate-50 focus:ring-blue-500 focus:border-blue-500" spellcheck="false"></textarea>
+                    <div id="config-error" class="mt-2 text-sm text-red-600 hidden"></div>
                 </div>
-                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                    <button type="button" onclick="saveConfig()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm">
-                        Save & Reload
-                    </button>
-                    <button type="button" onclick="closeConfigEditor()" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
-                        Cancel
-                    </button>
+                <div class="bg-slate-50 px-6 py-3.5 flex justify-end gap-3 border-t border-gray-100">
+                    <button type="button" onclick="closeConfigEditor()" class="px-4 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100">Cancel</button>
+                    <button type="button" onclick="saveConfig()" class="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700">Save & reload</button>
                 </div>
             </div>
         </div>
     </div>
-
 </body>
 </html>
