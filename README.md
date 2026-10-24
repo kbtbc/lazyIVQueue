@@ -60,6 +60,16 @@ All configuration is done via `config.json`.
 - `scout.timeout_iv` - Seconds to wait for IV data before removing from queue (default: 120)
 - `scout.wild_scout_delay` - Seconds to hold `wild`/`nearby_stop` entries before scouting (default: `0`). Set to `15` if your scanner sends encounters immediately to prevent wasting a scout on natural IV spawns
 
+**Pinpoint** (Pokemon with IVs but no exact position)
+- Golbat now derives IVs from the encounter id, so `nearby_stop` / `nearby_cell` Pokemon arrive with IVs but are still placed at the pokestop or S2 cell centre, with no verified despawn. Pinpoint scouts them so the exact `encounter`/`wild` sighting replaces the approximate one.
+- `pinpoint.enabled` - Turn pinpoint scouting on (default: `false`)
+- `pinpoint.min_iv` / `pinpoint.max_iv` - Queue when IV% is at or above `min_iv` (default `100`) or at or below `max_iv` (default `0`); `null` disables a rule
+- `pinpoint.pvp_max_rank` - Queue when the best PvP league rank is at or below this (default: `null`, off)
+- `pinpoint.include_ivlist` - Also queue `ivlist` species at any IV, using their list priority (default: `false`)
+- `pinpoint.priority` - Queue priority (default: `500`: after the VIP lists, before auto rarity)
+- `pinpoint.hold_seconds` - Wait before scouting so a regular worker can encounter it first (default: `60`)
+- A pinpoint entry is only resolved by the same encounter id (never by a nearby Pokemon of the same species), or by `scout.timeout_iv`
+
 **Koji Geofences**
 - `koji.filter_with_koji` - Enable geofence filtering (default: `true`). Set to `false` to skip geofence checks
 - `koji.url` - Full Koji base URL (e.g., `http://koji.example.com:8080`). Alternative to IP/Port

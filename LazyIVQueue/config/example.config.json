@@ -79,6 +79,16 @@
         "timeout_iv": 120,
         "wild_scout_delay": 0
     },
+    "_comment_pinpoint": "Pinpoint: scout Pokemon that already have IVs (derived by Golbat from the encounter id) but only an approximate position (nearby_stop at the pokestop, nearby_cell at the S2 cell centre), so maps and alerts get the exact spawn and despawn. Queued when iv% >= min_iv, iv% <= max_iv, best PvP rank <= pvp_max_rank, or (include_ivlist) the species is in ivlist; null turns a rule off. Resolved when the exact encounter/wild sighting arrives. hold_seconds gives regular workers a chance first.",
+    "pinpoint": {
+        "enabled": false,
+        "min_iv": 100,
+        "max_iv": 0,
+        "pvp_max_rank": null,
+        "include_ivlist": false,
+        "priority": 500,
+        "hold_seconds": 60
+    },
     "_comment_dragonite": "Dragonite API credentials for sending IV/cell scout requests. global_rate_limit_monitor polls Dragonite's own /global-rate-limit endpoint and resets it if waiters exceeds the threshold.",
     "dragonite": {
         "api_base_url": "",

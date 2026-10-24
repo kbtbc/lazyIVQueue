@@ -320,10 +320,12 @@ class IVQueueManager:
                         removed = self._remove_entry(key)
                         break
 
+            # Pinpoint entries carry the encounter id of a known Pokemon, so only
+            # Step 1 may resolve them: a same-species Pokemon nearby is a different one.
             # Step 1.5: Spawnpoint ID match
             if not removed and spawnpoint_id:
                 for key, entry in list(self._entries.items()):
-                    if entry.is_removed:
+                    if entry.is_removed or entry.list_type.startswith("pinpoint"):
                         continue
                     if entry.spawnpoint_id and entry.spawnpoint_id == spawnpoint_id:
                         if pokemon_id is None or entry.pokemon_id == pokemon_id:
@@ -333,7 +335,7 @@ class IVQueueManager:
             # Step 2: Proximity / Pokemon ID fallback
             if not removed and pokemon_id is not None:
                 for key, entry in list(self._entries.items()):
-                    if entry.is_removed or entry.pokemon_id != pokemon_id:
+                    if entry.is_removed or entry.pokemon_id != pokemon_id or entry.list_type.startswith("pinpoint"):
                         continue
                     
                     # Treat form 0 and None as default form
@@ -370,8 +372,11 @@ class IVQueueManager:
             for key, entry in list(self._entries.items()):
                 if entry.is_removed:
                     continue
-                # Must be a nearby_cell entry with matching s2_cell_id
+                # Must be a nearby_cell entry with matching s2_cell_id (pinpoint
+                # entries only resolve by encounter id, see remove_by_match)
                 if entry.seen_type != "nearby_cell" or entry.s2_cell_id != s2_cell_id:
+                    continue
+                if entry.list_type.startswith("pinpoint"):
                     continue
                 # Must match pokemon_id
                 if entry.pokemon_id != pokemon_id:

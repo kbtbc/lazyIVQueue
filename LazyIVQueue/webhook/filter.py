@@ -5,6 +5,10 @@ Priority Tiers (lower = higher priority):
   - Tier 1000+: auto_rarity entries - 1000 for unknown, 1000+rank for ranked Pokemon
 
 This ensures ivlist/celllist ALWAYS take priority over auto_rarity.
+
+Pinpoint entries (pinpoint.priority, default 500) are Pokemon that already have IVs
+but only an approximate position (nearby_stop / nearby_cell). They are resolved by
+the exact encounter/wild sighting a scout produces, not by IVs arriving.
 """
 from __future__ import annotations
 
@@ -20,6 +24,20 @@ from LazyIVQueue.queue.iv_queue import IVQueueManager, QueueEntry
 from LazyIVQueue.rarity.manager import RarityManager
 from LazyIVQueue.utils.pokemon import get_pokemon_name
 import LazyIVQueue.config as AppConfig
+
+APPROXIMATE_SEEN_TYPES = {"nearby_stop", "nearby_cell"}
+
+
+def _best_pvp_rank(pvp: Any) -> Optional[int]:
+    """Lowest rank in Golbat's pvp field ({"great": [{"rank": 1, ...}], ...}), or None."""
+    if not isinstance(pvp, dict):
+        return None
+    ranks = [
+        entry["rank"]
+        for league in pvp.values() if isinstance(league, list)
+        for entry in league if isinstance(entry, dict) and isinstance(entry.get("rank"), int)
+    ]
+    return min(ranks) if ranks else None
 
 
 @dataclass
@@ -38,6 +56,12 @@ class PokemonData:
     disappear_time: Optional[int]
     seen_type: str  # "wild", "nearby_stop", or "nearby_cell"
     area: Optional[str] = None  # Cached geofence area
+    pvp_best_rank: Optional[int] = None  # best rank across PvP leagues, None if unranked
+
+    @property
+    def position_is_approximate(self) -> bool:
+        """nearby_stop is placed at the pokestop, nearby_cell at the S2 cell centre."""
+        return self.seen_type in APPROXIMATE_SEEN_TYPES
 
     @property
     def has_iv(self) -> bool:
@@ -111,6 +135,7 @@ def parse_pokemon_data(raw: Dict[str, Any]) -> Optional[PokemonData]:
             encounter_id=encounter_id,
             disappear_time=raw.get("disappear_time"),
             seen_type=raw.get("seen_type", "wild"),
+            pvp_best_rank=_best_pvp_rank(raw.get("pvp")),
         )
     except (ValueError, TypeError) as e:
         logger.warning(f"Error parsing Pokemon data: {e}")
@@ -217,11 +242,82 @@ async def process_webhook_message(raw_data: Dict[str, Any]) -> None:
     if AppConfig.auto_rarity_enabled:
         await _record_census(pokemon)
 
-    # Route to queue
-    if pokemon.has_iv:
+    # Route to queue. IVs on an approximate sighting are derived, not encountered:
+    # the position is still unknown, so this neither resolves queue entries nor
+    # marks the encounter completed - it may queue a pinpoint scout instead.
+    if pokemon.has_iv and pokemon.position_is_approximate:
+        await filter_pinpoint_pokemon(pokemon)
+    elif pokemon.has_iv:
         await filter_iv_pokemon(pokemon)
     else:
         await filter_non_iv_pokemon(pokemon)
+
+
+def pinpoint_reason(pokemon: PokemonData) -> Optional[str]:
+    """Why this IV-known, approximately placed Pokemon is worth a scout, or None."""
+    iv = pokemon.iv_percent
+    if AppConfig.pinpoint_min_iv is not None and iv >= AppConfig.pinpoint_min_iv:
+        return f"iv={iv:g}"
+    if AppConfig.pinpoint_max_iv is not None and iv <= AppConfig.pinpoint_max_iv:
+        return f"iv={iv:g}"
+    if (
+        AppConfig.pinpoint_pvp_max_rank is not None
+        and pokemon.pvp_best_rank is not None
+        and pokemon.pvp_best_rank <= AppConfig.pinpoint_pvp_max_rank
+    ):
+        return f"pvp_rank={pokemon.pvp_best_rank}"
+    if AppConfig.pinpoint_include_ivlist and is_in_ivlist(pokemon)[0]:
+        return "ivlist"
+    return None
+
+
+async def filter_pinpoint_pokemon(pokemon: PokemonData) -> None:
+    """
+    Queue a scout for a Pokemon whose IVs are known but whose position is not.
+
+    Resolved later by filter_iv_pokemon when the exact (encounter/wild) sighting
+    of the same encounter arrives, whether from our scout or a regular worker.
+    """
+    if not AppConfig.pinpoint_enabled:
+        return
+    if is_in_denylist(pokemon):
+        logger.trace(f"{pokemon.pokemon_display} in denylist, skipping pinpoint")
+        return
+    reason = pinpoint_reason(pokemon)
+    if reason is None:
+        return
+
+    queue = await IVQueueManager.get_instance()
+    if queue._tuning_status in ("PAUSED", "MANUALLY_PAUSED") or queue._manual_pause:
+        logger.trace(f"Queue status {queue._tuning_status}: skipping pinpoint for {pokemon.pokemon_display}")
+        return
+
+    priority = AppConfig.pinpoint_priority
+    if reason == "ivlist":
+        priority = is_in_ivlist(pokemon)[1]
+    now = time_module.time()
+    entry = QueueEntry(
+        pokemon_id=pokemon.pokemon_id,
+        form=pokemon.form,
+        area=pokemon.area or "GLOBAL",
+        lat=pokemon.latitude,
+        lon=pokemon.longitude,
+        spawnpoint_id=pokemon.spawnpoint_id,
+        priority=priority,
+        encounter_id=pokemon.encounter_id,
+        disappear_time=pokemon.disappear_time or int(now) + 600,
+        seen_type=pokemon.seen_type,
+        s2_cell_id=get_s2_cell_id(pokemon.latitude, pokemon.longitude) if pokemon.seen_type == "nearby_cell" else None,
+        list_type=f"pinpoint({reason})",
+        eligible_at=now + AppConfig.pinpoint_hold_seconds if AppConfig.pinpoint_hold_seconds > 0 else 0.0,
+    )
+    if await queue.add(entry):
+        logger.opt(colors=True).info(
+            f"<green>[+]</green> Queued pinpoint: {pokemon.pokemon_display} in {entry.area} "
+            f"(priority {priority}, {entry.list_type}, {pokemon.seen_type}, "
+            f"IV {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina})"
+        )
+        queue.log_queue_status()
 
 
 async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
@@ -402,7 +498,18 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
             s2_cell_id=s2_cell_id,
         )
 
-    if removed:
+    if removed and removed.list_type.startswith("pinpoint"):
+        scouted = removed.was_scouted or removed.is_scouting
+        if scouted:
+            queue.record_match(pokemon.pokemon_display, removed.seen_type)
+        else:
+            queue.record_early_iv(pokemon.pokemon_display, removed.seen_type)
+        logger.opt(colors=True).success(
+            f"<green>[<]</green> Pinpointed ({removed.list_type}, "
+            f"{'by scout' if scouted else 'by a regular worker'}): {pokemon.pokemon_display} in {area} - "
+            f"{removed.seen_type} -> {pokemon.seen_type} at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f})"
+        )
+    elif removed:
         # Check if this was scouted by us or received IV before we scouted
         if removed.was_scouted or removed.is_scouting:
             queue.record_match(pokemon.pokemon_display, removed.seen_type)

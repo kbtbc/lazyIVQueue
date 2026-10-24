@@ -73,6 +73,19 @@ ivlist: List[str] = [str(x) for x in config.get("ivlist", [])]
 celllist: List[str] = [str(x) for x in config.get("celllist", [])]
 denylist: List[str] = [str(x) for x in config.get("denylist", [])]
 
+# Pinpoint - scout Pokemon that already have IVs (Golbat derives them from the
+# encounter id) but only an approximate position: nearby_stop sits at the
+# pokestop, nearby_cell at the S2 cell centre, and neither has a verified
+# despawn. A scout turns them into an exact encounter/wild sighting.
+pinpoint_config = config.get("pinpoint", {})
+pinpoint_enabled: bool = pinpoint_config.get("enabled", False)
+pinpoint_min_iv: Optional[float] = pinpoint_config.get("min_iv", 100)  # iv% at or above; null = off
+pinpoint_max_iv: Optional[float] = pinpoint_config.get("max_iv", 0)  # iv% at or below; null = off
+pinpoint_pvp_max_rank: Optional[int] = pinpoint_config.get("pvp_max_rank", None)  # best league rank at or below; null = off
+pinpoint_include_ivlist: bool = pinpoint_config.get("include_ivlist", False)  # ivlist species at any IV
+pinpoint_priority: int = pinpoint_config.get("priority", 500)  # between VIP lists (0-999 by position) and auto_rarity (1000+)
+pinpoint_hold_seconds: int = pinpoint_config.get("hold_seconds", 60)  # let regular workers encounter it first
+
 scout_config = config.get("scout", {})
 timeout_iv: int = scout_config.get("timeout_iv", 180)
 wild_scout_delay: int = scout_config.get("wild_scout_delay", 0)
@@ -136,6 +149,8 @@ def reload_config() -> Dict[str, any]:
     global dragonite_queue_poll_interval_seconds, dragonite_queue_threshold, dragonite_queue_clear_seconds
     global tuning_interval_seconds, tuning_step_factor, max_scout_percent
     global too_many_workers_percent, too_few_workers_percent
+    global pinpoint_config, pinpoint_enabled, pinpoint_min_iv, pinpoint_max_iv, pinpoint_pvp_max_rank
+    global pinpoint_include_ivlist, pinpoint_priority, pinpoint_hold_seconds
 
     changes = {}
 
@@ -242,6 +257,19 @@ def reload_config() -> Dict[str, any]:
         max_scout_percent = float(self_tuning_config.get("max_scout_percent", 1.0))
         too_many_workers_percent = float(self_tuning_config.get("too_many_workers_percent", 50.0))
         too_few_workers_percent = float(self_tuning_config.get("too_few_workers_percent", 15.0))
+
+    # Track pinpoint changes
+    new_pinpoint = new_config.get("pinpoint", {})
+    if new_pinpoint != pinpoint_config:
+        changes["pinpoint"] = {"old": pinpoint_config, "new": new_pinpoint}
+        pinpoint_config = new_pinpoint
+        pinpoint_enabled = pinpoint_config.get("enabled", False)
+        pinpoint_min_iv = pinpoint_config.get("min_iv", 100)
+        pinpoint_max_iv = pinpoint_config.get("max_iv", 0)
+        pinpoint_pvp_max_rank = pinpoint_config.get("pvp_max_rank", None)
+        pinpoint_include_ivlist = pinpoint_config.get("include_ivlist", False)
+        pinpoint_priority = pinpoint_config.get("priority", 500)
+        pinpoint_hold_seconds = pinpoint_config.get("hold_seconds", 60)
 
     # Update the global config dict
     config = new_config
