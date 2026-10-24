@@ -1435,7 +1435,9 @@ class IVQueueManager:
         if stats["dragonite_queue_stale"]:
             scout_queue_str += " (stale)"
         waiters_str = f"{stats['dragonite_rate_limit_waiters']}"
-        if stats["dragonite_rate_limit_waiters_stale"]:
+        if not AppConfig.dragonite_rate_limit_monitor_enabled:
+            waiters_str = "off"
+        elif stats["dragonite_rate_limit_waiters_stale"]:
             waiters_str += " (stale)"
         logger.opt(colors=True).info(
             f"<magenta>[Self-Tuning]</magenta> step=<yellow>{stats['throttled_step']}</yellow> | "

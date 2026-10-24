@@ -89,10 +89,11 @@
         "priority": 500,
         "hold_seconds": 60
     },
-    "_comment_dragonite": "Dragonite API credentials for sending IV/cell scout requests. global_rate_limit_monitor polls Dragonite's own /global-rate-limit endpoint and resets it if waiters exceeds the threshold.",
+    "_comment_dragonite": "Dragonite API credentials for sending IV/cell scout requests. global_rate_limit_monitor (off unless enabled) polls Dragonite's own /global-rate-limit endpoint and resets it if waiters exceeds the threshold; only useful with a MITM that piles up rate-limit waiters.",
     "dragonite": {
         "api_base_url": "",
         "global_rate_limit_monitor": {
+            "enabled": false,
             "poll_interval_seconds": 1.0,
             "waiters_threshold": 20,
             "reset_cooldown_seconds": 30

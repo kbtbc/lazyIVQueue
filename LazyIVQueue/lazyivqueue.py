@@ -91,10 +91,15 @@ class LazyIVQueueApp:
         self._dragonite_queue_monitor = await DragoniteQueueMonitor.get_instance()
         await self._dragonite_queue_monitor.start()
 
-        # 4c. Start Dragonite global rate limit monitor (separate from our own circuit breaker)
-        logger.info("Starting Dragonite rate limit monitor...")
-        self._dragonite_rate_limit_monitor = await DragoniteRateLimitMonitor.get_instance()
-        await self._dragonite_rate_limit_monitor.start()
+        # 4c. Start Dragonite global rate limit monitor (separate from our own circuit breaker).
+        # Off by default: it existed to reset Dragonite's limiter when an unstable MITM
+        # piled up waiters, and nothing in the queue's own decisions reads it.
+        if AppConfig.dragonite_rate_limit_monitor_enabled:
+            logger.info("Starting Dragonite rate limit monitor...")
+            self._dragonite_rate_limit_monitor = await DragoniteRateLimitMonitor.get_instance()
+            await self._dragonite_rate_limit_monitor.start()
+        else:
+            logger.info("Dragonite rate limit monitor disabled (dragonite.global_rate_limit_monitor.enabled)")
 
         # 5. Start cleanup task for expired entries
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
