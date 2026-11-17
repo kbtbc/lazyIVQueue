@@ -27,7 +27,7 @@
         "151"
     ],
     "denylist": [],
-    "_comment_auto_rarity": "Dynamically calculates rarity based on spawn frequency using an auto-rarity baseline percentage. iv_baseline_percent defines the baseline percentage of rarest spawns scouted (e.g. 0.03 = 3.0%).",
+    "_comment_auto_rarity": "Auto-rarity selects IV-less wild/nearby_stop sightings after calibration. Admission compares global species/form frequency with self_tuning.iv_baseline_percent (0.03 means 0.03%, not 3%), adjusted by self-tuning. The rarity thresholds below label display/log tiers. IV-known nearby sightings use pinpoint rules instead.",
     "auto_rarity": {
         "enabled": false,
         "calibration_minutes": 3,
@@ -79,7 +79,7 @@
         "timeout_iv": 120,
         "wild_scout_delay": 0
     },
-    "_comment_pinpoint": "Pinpoint: scout Pokemon that already have IVs (derived by Golbat from the encounter id) but only an approximate position (nearby_stop at the pokestop, nearby_cell at the S2 cell centre), so maps and alerts get the exact spawn and despawn. Queued when iv% >= min_iv, iv% <= max_iv, best PvP rank <= pvp_max_rank, or (include_ivlist) the species is in ivlist; null turns a rule off. Resolved when the exact encounter/wild sighting arrives. hold_seconds gives regular workers a chance first.",
+    "_comment_pinpoint": "Pinpoint: scout Pokemon with IVs but an approximate position (nearby_stop at the pokestop, nearby_cell at the S2 cell centre). Select when iv% >= min_iv, iv% <= max_iv, best PvP rank <= pvp_max_rank, or include_ivlist is true and the species/form matches ivlist; null disables an IV/PvP rule. Auto-rarity does not select IV-known targets. Success requires an IV-bearing exact sighting of the same encounter, not a verified despawn timer. hold_seconds gives regular workers a chance first.",
     "pinpoint": {
         "enabled": false,
         "min_iv": 100,
